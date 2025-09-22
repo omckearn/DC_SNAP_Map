@@ -1,9 +1,5 @@
-
-
+// public token restricted to https://omckearn.github.io/DC_SNAP_Map/*
 mapboxgl.accessToken = "pk.eyJ1Ijoib21ja2Vhcm51dyIsImEiOiJjbWZ2cWNyYWcwNWRoMmtwdWc5amk1bWxiIn0.5uwt4drO_Ej32d0C_qqOwQ";
-
-
-
 
 const map = new mapboxgl.Map({
   container: 'map',
@@ -167,6 +163,12 @@ map.on('load', () => {
     setNearLocation(e.lngLat.lng, e.lngLat.lat, true, 'pick');
     togglePickMode(false);
   });
+
+  // Show intro modal for first-time users
+  try {
+    const dismissed = localStorage.getItem('introDismissed') === 'true';
+    if (!dismissed) showIntroModal();
+  } catch (_) { showIntroModal(); }
 });
 
 let geojsonData;
@@ -182,6 +184,24 @@ let nearLocation = null;   // { lon, lat } chosen by user
 let pickLocationMode = false; // whether map clicks set near location
 let currentGeo = { lon: null, lat: null }; // last known geolocation
 let nearMarker = null; // Marker for user-input location (search/pick)
+
+// Intro modal controls
+function showIntroModal() {
+  const modal = document.getElementById('introModal');
+  const got = document.getElementById('introGotIt');
+  const close = document.getElementById('introClose');
+  const dont = document.getElementById('introDontShow');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  const hide = () => {
+    if (dont && dont.checked) {
+      try { localStorage.setItem('introDismissed', 'true'); } catch (_) {}
+    }
+    modal.style.display = 'none';
+  };
+  if (got) got.onclick = hide;
+  if (close) close.onclick = hide;
+}
 
 // Utility to clear markers
 function clearMarkers() {
@@ -203,7 +223,7 @@ function addMarkers(data) {
     ].filter(Boolean);
     const addressLine = addressParts.join(', ');
 
-    const popup = new mapboxgl.Popup({ offset: 20 }).setHTML(`
+    const popup = new mapboxgl.Popup({ offset: 20, className: 'app-popup' }).setHTML(`
       <div>
         <strong>${props.Store_Name || 'Unnamed Store'}</strong><br>
         <span>${props.Store_Type || 'Unknown Type'}</span><br>

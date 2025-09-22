@@ -42,6 +42,35 @@
   <!-- Legend overlay -->
   <div id="legend" class="legend"></div>
 
+  <!-- Data source attribution -->
+  <div id="data-attrib" class="data-attrib">
+    Data source: <a href="https://usda-snap-retailers-usda-fns.hub.arcgis.com/datasets/8b260f9a10b0459aa441ad8588c2251c/explore?location=6.440261%2C-14.737150%2C2.90" target="_blank" rel="noopener">USDA SNAP Retailers</a>
+  </div>
+
+  <!-- Intro modal for new users -->
+  <div id="introModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Welcome to DC SNAP Retailers</h3>
+        <button id="introClose" class="modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <p>This map helps you find and explore SNAP‑authorized retailers in Washington, DC.</p>
+        <ul>
+          <li>Colored emoji markers show store types. Click a marker for details and Directions.</li>
+          <li>Use the filters to narrow by Store Type and Ward. Clear resets; Home recenters on DC.</li>
+          <li>The legend (bottom‑left) shows counts by type and updates with filters.</li>
+          <li>“SNAP Retailers Near Me” lets you enter an address, use your location, or pick on the map to see the nearest retailer for each category with distances and directions.</li>
+          <li>The black outline shows the DC boundary. A blue dot shows your current location if permitted.</li>
+        </ul>
+      </div>
+      <div class="modal-actions">
+        <label><input type="checkbox" id="introDontShow" /> Don’t show this again</label>
+        <button id="introGotIt" class="modal-primary">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Load untracked config.js with MAPBOX token before app.js -->
   <script src="config.js"></script>
   <!-- Turf.js for point-in-polygon (ward filtering) -->

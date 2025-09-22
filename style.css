@@ -1,7 +1,14 @@
+:root {
+  --brand: #033C5A;
+  --brand-ink: #033C5A; /* repeated per request */
+  --white: #FFFFFF;
+}
+
 body {
   margin: 0;
   padding: 0;
-  font-family: Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Inter, Oxygen, Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', Arial, sans-serif;
+  color: var(--brand-ink);
 }
 
 #map {
@@ -15,34 +22,41 @@ body {
   top: 10px;
   left: 10px;
   z-index: 1;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  background: var(--white);
+  padding: 12px 12px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--brand);
+  box-shadow: 0 6px 20px rgba(3,60,90,0.15);
 }
 
 #filters label {
   margin-right: 5px;
-  font-weight: bold;
+  font-weight: 600;
+  color: var(--brand-ink);
 }
 
 #filters select {
   margin-right: 10px;
-  padding: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--brand);
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--brand-ink);
 }
+
+#filters select:focus { outline: none; box-shadow: 0 0 0 3px rgba(3,60,90,0.2); }
 
 #filters button {
   margin-left: 6px;
-  padding: 6px 10px;
-  border: 1px solid #ccc;
-  background: #fff;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: var(--white);
+  border-radius: 6px;
   cursor: pointer;
 }
 
-#filters button:hover {
-  background: #f3f3f3;
-}
+#filters button:hover { filter: brightness(1.05); }
 
 /* Emoji markers for stores */
 .marker-emoji {
@@ -94,12 +108,40 @@ body {
   bottom: 10px;
   left: 10px;
   z-index: 1;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  background: var(--white);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--brand);
+  box-shadow: 0 6px 20px rgba(3,60,90,0.15);
   max-width: 280px;
 }
+
+/* Intro modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: #fff;
+  border-radius: 8px;
+  width: min(720px, 92vw);
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+}
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--brand); color: var(--white); border-top-left-radius: 8px; border-top-right-radius: 8px; }
+.modal-header h3 { margin: 0; font-size: 18px; color: var(--white); }
+.modal-close { border: 1px solid rgba(255,255,255,0.6); color: var(--white); background: transparent; font-size: 16px; cursor: pointer; line-height: 1; border-radius: 4px; padding: 2px 8px; }
+.modal-body { padding: 12px 16px; }
+.modal-body ul { margin: 8px 0 0 18px; }
+.modal-actions { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid #eee; }
+.modal-primary { padding: 8px 12px; border: 1px solid var(--brand); background: var(--brand); color: var(--white); border-radius: 6px; cursor: pointer; }
+.modal-primary:hover { filter: brightness(1.05); }
 .legend-item {
   display: flex;
   align-items: center;
@@ -129,16 +171,14 @@ body {
   left: 10px;
   top: 160px; /* approx below filters */
   z-index: 1;
-  background: rgba(255,255,255,0.95);
-  padding: 10px;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  background: var(--white);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--brand);
+  box-shadow: 0 6px 20px rgba(3,60,90,0.15);
   max-width: 340px;
 }
-.near-title {
-  font-weight: bold;
-  margin-bottom: 6px;
-}
+.near-title { font-weight: 700; margin-bottom: 8px; color: var(--brand-ink); }
 .near-inputs {
   display: flex;
   flex-wrap: wrap;
@@ -147,18 +187,19 @@ body {
 }
 .near-inputs input[type="text"] {
   flex: 1 1 180px;
-  padding: 6px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--brand);
+  border-radius: 6px;
 }
 .near-inputs button {
-  padding: 6px 10px;
-  border: 1px solid #ccc;
-  background: #fff;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: var(--white);
+  border-radius: 6px;
   cursor: pointer;
 }
-.near-inputs button:hover { background: #f3f3f3; }
+.near-inputs button:hover { filter: brightness(1.05); }
 .near-hint { font-size: 12px; color: #333; margin-bottom: 6px; }
 .near-list { max-height: none; overflow: visible; }
 .near-item { display: flex; align-items: center; margin: 6px 0; font-size: 13px; }
@@ -166,14 +207,22 @@ body {
 .near-dist { color: #555; margin-left: 8px; white-space: nowrap; }
 .near-dir {
   margin-left: 8px;
-  padding: 4px 8px;
-  border: 1px solid #ccc;
-  background: #fff;
-  border-radius: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: var(--white);
+  border-radius: 6px;
   text-decoration: none;
-  color: #111;
 }
-.near-dir:hover { background: #f3f3f3; }
+.near-dir:hover { filter: brightness(1.05); }
+
+/* Popup styling */
+.mapboxgl-popup.app-popup .mapboxgl-popup-content {
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  color: var(--brand-ink);
+}
+.mapboxgl-popup.app-popup .mapboxgl-popup-close-button { color: var(--brand-ink); }
 
 /* Marker for user-picked/search location */
 .near-pin {
@@ -181,3 +230,18 @@ body {
   line-height: 1;
   text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
+
+/* Data attribution */
+.data-attrib {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 1;
+  background: var(--white);
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--brand);
+  box-shadow: 0 6px 20px rgba(3,60,90,0.15);
+  font-size: 12px;
+}
+.data-attrib a { color: var(--brand-ink); text-decoration: underline; }
