@@ -1,5 +1,5 @@
 // public token restricted to https://omckearn.github.io/DC_SNAP_Map/*
-mapboxgl.accessToken = "pk.eyJ1Ijoib21ja2Vhcm51dyIsImEiOiJjbWZ2cWNyYWcwNWRoMmtwdWc5amk1bWxiIn0.5uwt4drO_Ej32d0C_qqOwQ";
+mapboxgl.accessToken = "pk.eyJ1Ijoib21ja2Vhcm51dyIsImEiOiJjbTFqamRqeWcxMWF6MnJwc2RkdjBqdHoxIn0.E5gopEUreChvdj15aNY6_g";
 
 const map = new mapboxgl.Map({
   container: 'map',
@@ -8,8 +8,9 @@ const map = new mapboxgl.Map({
   zoom: 11
 });
 
-// Add basic navigation (zoom/rotate) controls
-map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'top-right');
+// Add basic navigation (zoom/rotate) controls to top-left, then move into panel
+const _navControl = new mapboxgl.NavigationControl({ visualizePitch: true });
+map.addControl(_navControl, 'top-left');
 
 // Emoji icons for each store type
 const storeTypeIcons = {
@@ -156,6 +157,20 @@ map.on('load', () => {
   }
   // If boundary already loaded, update mask and bounds now
   updateDCMaskAndBounds();
+  // Retailer source/layers for clustering/points
+  ensureRetailerLayers();
+  // Move nav controls into dock just below filters
+  try {
+    const corner = map.getContainer().querySelector('.mapboxgl-ctrl-top-left');
+    const target = document.getElementById('mapNavDock');
+    if (corner && target) {
+      const group = corner.querySelector('.mapboxgl-ctrl-group');
+      if (group) target.appendChild(group);
+    }
+    repositionNavDock();
+  } catch (_) {}
+  // Reposition nav dock on resize
+  window.addEventListener('resize', repositionNavDock);
 
   // Map click to pick a location (when enabled)
   map.on('click', (e) => {
@@ -184,6 +199,78 @@ let nearLocation = null;   // { lon, lat } chosen by user
 let pickLocationMode = false; // whether map clicks set near location
 let currentGeo = { lon: null, lat: null }; // last known geolocation
 let nearMarker = null; // Marker for user-input location (search/pick)
+let distanceUnits = 'miles'; // miles | kilometers
+
+function getSelectedStoreTypes() {
+  const container = document.getElementById('storeTypeFilters');
+  if (!container) return new Set();
+  const checked = container.querySelectorAll('input[type="checkbox"]:checked');
+  const types = new Set();
+  checked.forEach((el) => types.add(el.value));
+  return types;
+}
+
+// Utilities to provide emoji icons via images (ensures emoji render reliably)
+function slugStoreType(type) {
+  return String(type || 'other').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+}
+
+// Register an emoji as a sprite image using a data URL (more reliable than ImageData on some browsers)
+function addEmojiImage(name, emojiChar) {
+  if (map.hasImage && map.hasImage(name)) return;
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, size, size);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '48px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui, sans-serif';
+  ctx.fillText(emojiChar, size/2, size/2);
+  const url = canvas.toDataURL('image/png');
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    try { map.addImage(name, img, { pixelRatio: 2 }); } catch (_) {}
+  };
+  img.src = url;
+}
+
+function registerEmojiIconImages() {
+  const entries = Object.entries(storeTypeIcons);
+  entries.forEach(([type, emoji]) => {
+    const name = `st_emoji_${slugStoreType(type)}`;
+    addEmojiImage(name, emoji);
+  });
+  // Fallback for missing types
+  addEmojiImage('st_emoji_other', '📍');
+  // Add on-demand hook for any style re-requests
+  if (!map.__emojiMissingHook) {
+    map.on('styleimagemissing', (e) => {
+      const id = e && e.id;
+      if (id && /^st_emoji_/.test(id)) {
+        // Derive emoji from name if possible, else use 📍
+        const slug = id.replace(/^st_emoji_/, '');
+        const match = Object.entries(storeTypeIcons).find(([t]) => slugStoreType(t) === slug);
+        const emoji = match ? match[1] : '📍';
+        addEmojiImage(id, emoji);
+      }
+    });
+    map.__emojiMissingHook = true;
+  }
+}
+
+// Position the nav dock just below the filters panel
+function repositionNavDock() {
+  const dock = document.getElementById('mapNavDock');
+  const filters = document.getElementById('filters');
+  if (!dock || !filters) return;
+  const r = filters.getBoundingClientRect();
+  // Place the dock aligned to filters' left, just below it
+  dock.style.left = `${Math.max(10, Math.round(r.left))}px`;
+  dock.style.top = `${Math.round(r.bottom) + 8}px`;
+}
 
 // Intro modal controls
 function showIntroModal() {
@@ -209,6 +296,176 @@ function clearMarkers() {
   markers = [];
 }
 
+// Clustered retailer source/layers and popup behavior
+function ensureRetailerLayers() {
+  if (map.getSource('retailers')) return;
+  map.addSource('retailers', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+    cluster: true,
+    clusterRadius: 45,
+    clusterMaxZoom: 14
+  });
+
+  map.addLayer({
+    id: 'clusters',
+    type: 'circle',
+    source: 'retailers',
+    filter: ['has', 'point_count'],
+    paint: {
+      'circle-color': '#033C5A',
+      'circle-radius': ['step', ['get', 'point_count'], 16, 10, 20, 25, 24],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 2
+    }
+  });
+  map.addLayer({
+    id: 'cluster-count',
+    type: 'symbol',
+    source: 'retailers',
+    filter: ['has', 'point_count'],
+    layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12 },
+    paint: { 'text-color': '#ffffff' }
+  });
+
+  map.addLayer({
+    id: 'retailers-circles',
+    type: 'circle',
+    source: 'retailers',
+    filter: ['!', ['has', 'point_count']],
+    paint: {
+      'circle-radius': 14,
+      'circle-color': [
+        'match', ['get', 'Store_Type'],
+        'Convenience Store', '#1f77b4',
+        'Farmers and Markets', '#2ca02c',
+        'Grocery Store', '#ff7f0e',
+        'Pharmacy', '#d62728',
+        'Specialty Store', '#8c564b',
+        'Super Store', '#17becf',
+        'Supermarket', '#e377c2',
+        /* other */ '#9467bd'
+      ],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 2
+    }
+  });
+  // Register emoji images and overlay them as icons above circles
+  registerEmojiIconImages();
+  map.addLayer({
+    id: 'retailers-icons',
+    type: 'symbol',
+    source: 'retailers',
+    filter: ['!', ['has', 'point_count']],
+    layout: {
+      'icon-image': [
+        'match', ['get', 'Store_Type'],
+        'Convenience Store', 'st_emoji_convenience_store',
+        'Farmers and Markets', 'st_emoji_farmers_and_markets',
+        'Grocery Store', 'st_emoji_grocery_store',
+        'Pharmacy', 'st_emoji_pharmacy',
+        'Specialty Store', 'st_emoji_specialty_store',
+        'Super Store', 'st_emoji_super_store',
+        'Supermarket', 'st_emoji_supermarket',
+        /* other */ 'st_emoji_other'
+      ],
+      'icon-size': 0.9,
+      'icon-allow-overlap': true,
+      'icon-anchor': 'center'
+    }
+  });
+
+  // Cluster interactivity
+  map.on('click', 'clusters', (e) => {
+    const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
+    const clusterId = features[0].properties.cluster_id;
+    const source = map.getSource('retailers');
+    source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+      if (err) return;
+      map.easeTo({ center: features[0].geometry.coordinates, zoom });
+    });
+  });
+  map.on('mouseenter', 'clusters', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'clusters', () => { map.getCanvas().style.cursor = ''; });
+
+  const pointLayers = ['retailers-circles', 'retailers-icons'];
+  pointLayers.forEach((ly) => {
+    map.on('mouseenter', ly, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', ly, () => { map.getCanvas().style.cursor = ''; });
+    map.on('click', ly, (e) => {
+      const f = e.features && e.features[0];
+      if (!f) return;
+      const props = f.properties || {};
+      const coords = f.geometry.coordinates.slice();
+      const addressParts = [
+        props.Store_Street_Address,
+        props.Additonal_Address,
+        [props.City, props.State].filter(Boolean).join(', '),
+        props.Zip_Code
+      ].filter(Boolean);
+      const addressLine = addressParts.join(', ');
+      const html = `
+        <div>
+          <strong>${props.Store_Name || 'Unnamed Store'}</strong><br>
+          <span>${props.Store_Type || 'Unknown Type'}</span><br>
+          <span>
+            ${addressLine || 'Address not available'}
+            ${addressLine ? '<button class="copy-address-btn" type="button" title="Copy" aria-label="Copy">📋</button>' : ''}
+          </span>
+          <div style="margin-top:6px;">
+            <a class="near-dir popup-dir" href="#" target="_blank" rel="noopener">Directions</a>
+          </div>
+        </div>`;
+      const popup = new mapboxgl.Popup({ offset: 20, className: 'app-popup' }).setLngLat(coords).setHTML(html).addTo(map);
+
+      popup.on('open', () => {
+        try {
+          const container = popup.getElement();
+          const btn = container && container.querySelector('.copy-address-btn');
+          if (btn) {
+            btn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              if (!addressLine) return;
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(addressLine)
+                  .then(() => { btn.textContent = '✅'; setTimeout(() => { btn.textContent = '📋'; }, 1200); })
+                  .catch(() => { btn.textContent = '❌'; setTimeout(() => { btn.textContent = '📋'; }, 1200); });
+              } else {
+                const ta = document.createElement('textarea');
+                ta.value = addressLine; document.body.appendChild(ta); ta.select();
+                try { document.execCommand('copy'); btn.textContent = '✅'; } catch(_) { btn.textContent = '❌'; }
+                document.body.removeChild(ta); setTimeout(() => { btn.textContent = '📋'; }, 1200);
+              }
+            }, { once: true });
+          }
+        } catch (_) {}
+
+        try {
+          const container = popup.getElement();
+          const dir = container && container.querySelector('.popup-dir');
+          if (dir) {
+            const hasGeo = currentGeo && currentGeo.lon != null && currentGeo.lat != null;
+            const destLat = coords[1], destLon = coords[0];
+            if (hasGeo) {
+              const originStr = `${currentGeo.lat},${currentGeo.lon}`;
+              const destStr = `${destLat},${destLon}`;
+              dir.href = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}&travelmode=walking`;
+            } else {
+              const destStr = `${destLat},${destLon}`;
+              dir.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destStr)}`;
+            }
+          }
+        } catch (_) {}
+      });
+    });
+  });
+}
+
+function updateRetailerSource(collection) {
+  const src = map.getSource('retailers');
+  if (!src) return;
+  src.setData(collection || { type: 'FeatureCollection', features: [] });
+}
 // Add markers to map
 function addMarkers(data) {
   data.features.forEach(feature => {
@@ -329,7 +586,7 @@ function updateNearMePanel(collection) {
     // Skip categories that should not be listed in Near Me
     if (t === 'Other' || t === 'Specialty Store') return;
     const pt = turf.point(f.geometry.coordinates);
-    const d = turf.distance(origin, pt, { units: 'miles' });
+    const d = turf.distance(origin, pt, { units: distanceUnits === 'kilometers' ? 'kilometers' : 'miles' });
     const cur = byType.get(t);
     if (!cur || d < cur.dist) byType.set(t, { feature: f, dist: d });
   });
@@ -351,11 +608,12 @@ function updateNearMePanel(collection) {
     const [destLon, destLat] = r.coords || [];
     const destStr = (destLat != null && destLon != null) ? `${destLat},${destLon}` : '';
     const dirHref = destStr ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}&travelmode=walking` : '#';
+    const unitsLabel = distanceUnits === 'kilometers' ? ' km' : ' mi';
     return `
       <div class="near-item">
         <span class="marker-emoji" style="background-color:${color}">${emoji}</span>
         <span class="near-name">${r.name} <span style="color:#777">(${r.type})</span></span>
-        <span class="near-dist">${r.dist.toFixed(2)} mi</span>
+        <span class="near-dist">${r.dist.toFixed(2)}${unitsLabel}</span>
         <a class="near-dir" href="${dirHref}" target="_blank" rel="noopener">Directions</a>
       </div>
     `;
@@ -366,13 +624,13 @@ function updateNearMePanel(collection) {
 
 // Filter logic
 function filterData() {
-  const storeFilter = document.getElementById('storeFilter').value;
+  const selectedTypes = getSelectedStoreTypes();
   const wardFilter = document.getElementById('wardFilter') ? document.getElementById('wardFilter').value : 'all';
 
   const filtered = {
     type: "FeatureCollection",
     features: geojsonData.features.filter(f => {
-      const storeMatch = storeFilter === "all" || f.properties.Store_Type === storeFilter;
+      const storeMatch = selectedTypes.size === 0 || selectedTypes.has(f.properties.Store_Type);
       let wardMatch = true;
       if (wardFilter !== 'all') {
         const geom = wardsById[wardFilter];
@@ -393,8 +651,8 @@ function filterData() {
     })
   };
 
-  clearMarkers();
-  addMarkers(filtered);
+  // Update clustered source instead of DOM markers
+  updateRetailerSource(filtered);
 
   // Update ward outline on map
   updateWardOutline(wardFilter);
@@ -411,17 +669,19 @@ function filterData() {
 // Populate dropdowns dynamically
 function populateFilters(data) {
   const stores = new Set();
-
-  data.features.forEach(f => {
-    if (f.properties.Store_Type) stores.add(f.properties.Store_Type);
-  });
-
-  const storeSelect = document.getElementById('storeFilter');
+  data.features.forEach(f => { if (f.properties.Store_Type) stores.add(f.properties.Store_Type); });
+  const container = document.getElementById('storeTypeFilters');
+  if (!container) return;
+  container.innerHTML = '';
   [...stores].sort().forEach(st => {
-    const opt = document.createElement('option');
-    opt.value = st;
-    opt.textContent = st;
-    storeSelect.appendChild(opt);
+    const id = `st_${st.replace(/[^a-z0-9]+/gi,'_')}`;
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = st; cb.id = id;
+    cb.addEventListener('change', filterData);
+    const span = document.createElement('span'); span.textContent = st;
+    label.appendChild(cb); label.appendChild(span);
+    container.appendChild(label);
   });
 }
 
@@ -636,16 +896,43 @@ Promise.all([
   geojsonData = filterRetailersToDC(geojsonData);
   populateFilters(geojsonData);
   populateWardFilter(wardsData);
-  addMarkers(geojsonData);
+  ensureRetailerLayers();
+  updateRetailerSource(geojsonData);
   updateLegend(geojsonData);
   currentFilteredData = geojsonData;
 
-  document.getElementById('storeFilter').addEventListener('change', filterData);
   const wardEl = document.getElementById('wardFilter');
   if (wardEl) wardEl.addEventListener('change', filterData);
 
   // Update mask and bounds now that boundary is known
   updateDCMaskAndBounds();
+
+  // Add wards layer for click-to-filter and light tint
+  try {
+    if (!map.getSource('wards')) {
+      map.addSource('wards', { type: 'geojson', data: wardsData });
+    }
+    if (!map.getLayer('wards-fill')) {
+      map.addLayer({
+        id: 'wards-fill', type: 'fill', source: 'wards',
+        paint: { 'fill-color': '#033C5A', 'fill-opacity': 0.05 }
+      }, 'selected-ward-fill');
+    }
+    if (!map.getLayer('wards-outline')) {
+      map.addLayer({ id: 'wards-outline', type: 'line', source: 'wards', paint: { 'line-color': '#033C5A', 'line-width': 1, 'line-opacity': 0.4 } }, 'selected-ward-outline');
+    }
+    map.on('click', 'wards-fill', (e) => {
+      const f = e.features && e.features[0];
+      if (!f) return;
+      const w = String(f.properties.WARD_ID ?? f.properties.WARD ?? '');
+      const sel = document.getElementById('wardFilter');
+      if (sel && w) sel.value = w;
+      updateWardOutline(w || 'all');
+      filterData();
+    });
+    map.on('mouseenter', 'wards-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'wards-fill', () => { map.getCanvas().style.cursor = ''; });
+  } catch (e) { console.warn('Wards layer add failed:', e); }
 
   // Near Me panel handlers
   const nearSearchBtn = document.getElementById('nearSearch');
@@ -689,6 +976,43 @@ Promise.all([
   }
   if (nearPickBtn) {
     nearPickBtn.addEventListener('click', () => togglePickMode(!pickLocationMode));
+  }
+
+  const nearUseCenterBtn = document.getElementById('nearUseCenter');
+  if (nearUseCenterBtn) {
+    nearUseCenterBtn.addEventListener('click', () => {
+      const c = map.getCenter();
+      setNearLocation(c.lng, c.lat, true, 'center');
+    });
+  }
+  const unitsSel = document.getElementById('unitsSelect');
+  if (unitsSel) {
+    unitsSel.addEventListener('change', () => {
+      distanceUnits = unitsSel.value === 'kilometers' ? 'kilometers' : 'miles';
+      updateNearMePanel(currentFilteredData || geojsonData);
+    });
+  }
+
+  // Clear and Home buttons
+  const clearBtn = document.getElementById('clearFilters');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      const container = document.getElementById('storeTypeFilters');
+      if (container) {
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+      }
+      const wardSel = document.getElementById('wardFilter');
+      if (wardSel) wardSel.value = 'all';
+      updateWardOutline('all');
+      filterData();
+    });
+  }
+  const homeBtn = document.getElementById('homeView');
+  if (homeBtn) {
+    homeBtn.addEventListener('click', () => {
+      if (dcBounds) { map.fitBounds(dcBounds, { padding: 30 }); }
+      else { map.flyTo({ center: [-77.0369, 38.9072], zoom: 11 }); }
+    });
   }
 })
 .catch(err => console.error('Error loading data:', err));
