@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>DC SNAP Retailers</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="style.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+</head>
+<body>
+  <div id="filters">
+    <label for="storeFilter">Filter by Store Type:</label>
+    <select id="storeFilter">
+      <option value="all">All</option>
+    </select>
+
+    <label for="wardFilter">Filter by Ward:</label>
+    <select id="wardFilter">
+      <option value="all">All</option>
+    </select>
+
+    <button id="clearFilters" type="button">Clear</button>
+    <button id="homeView" type="button">Home</button>
+  </div>
+
+  <!-- Near Me Panel -->
+  <div id="near-panel" class="near-panel">
+    <div class="near-title">SNAP Retailers Near Me</div>
+    <div class="near-inputs">
+      <input id="nearAddress" type="text" placeholder="Enter address in DC" />
+      <button id="nearSearch" type="button">Search</button>
+      <button id="nearUseGeo" type="button">Use my location</button>
+      <button id="nearPick" type="button">Pick on map</button>
+    </div>
+    <div id="nearHint" class="near-hint" style="display:none">Click on the map to set a location</div>
+    <div id="nearList" class="near-list"></div>
+  </div>
+
+  <div id="map"></div>
+
+  <!-- Legend overlay -->
+  <div id="legend" class="legend"></div>
+
+  <!-- Load untracked config.js with MAPBOX token before app.js -->
+  <script src="config.js"></script>
+  <!-- Turf.js for point-in-polygon (ward filtering) -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

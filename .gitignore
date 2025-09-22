@@ -1,0 +1,2 @@
+# ignore config with secrets
+config.js

@@ -1,0 +1,183 @@
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+}
+
+#map {
+  height: 100vh;
+  width: 100%;
+}
+
+
+#filters {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+#filters label {
+  margin-right: 5px;
+  font-weight: bold;
+}
+
+#filters select {
+  margin-right: 10px;
+  padding: 4px;
+}
+
+#filters button {
+  margin-left: 6px;
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#filters button:hover {
+  background: #f3f3f3;
+}
+
+/* Emoji markers for stores */
+.marker-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  user-select: none;
+  cursor: pointer;
+  color: #111;
+}
+
+/* Copy address button inside popup */
+.copy-address-btn {
+  margin-left: 6px;
+  font-size: 14px;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+.copy-address-btn:hover::after {
+  content: 'Copy';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 125%;
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Legend */
+.legend {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  max-width: 280px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  margin: 4px 0;
+  font-size: 13px;
+}
+.legend-marker {
+  margin-right: 8px;
+}
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+  border: 1px solid rgba(0,0,0,0.2);
+}
+.legend-label { flex: 1; }
+.legend-count { color: #555; margin-left: 8px; }
+.copy-address-btn:focus {
+  outline: 2px solid #000;
+  outline-offset: 1px;
+}
+
+/* Near Me Panel */
+#near-panel.near-panel {
+  position: absolute;
+  left: 10px;
+  top: 160px; /* approx below filters */
+  z-index: 1;
+  background: rgba(255,255,255,0.95);
+  padding: 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  max-width: 340px;
+}
+.near-title {
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+.near-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.near-inputs input[type="text"] {
+  flex: 1 1 180px;
+  padding: 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.near-inputs button {
+  padding: 6px 10px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.near-inputs button:hover { background: #f3f3f3; }
+.near-hint { font-size: 12px; color: #333; margin-bottom: 6px; }
+.near-list { max-height: none; overflow: visible; }
+.near-item { display: flex; align-items: center; margin: 6px 0; font-size: 13px; }
+.near-name { flex: 1; margin-left: 8px; }
+.near-dist { color: #555; margin-left: 8px; white-space: nowrap; }
+.near-dir {
+  margin-left: 8px;
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  text-decoration: none;
+  color: #111;
+}
+.near-dir:hover { background: #f3f3f3; }
+
+/* Marker for user-picked/search location */
+.near-pin {
+  font-size: 26px;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
