@@ -201,6 +201,9 @@ let geojsonData;
 let wardsData;
 let wardsById = {};
 let selectedWards = new Set();
+let countiesData;
+let countiesById = {};
+let selectedCounties = new Set();
 let markers = [];
 let dcBoundaryGeom = null; // raw GeoJSON geometry for DC boundary
 let dcPolygon = null;      // Turf.js polygon/multipolygon for DC boundary
@@ -648,11 +651,12 @@ function registerEmojiIconImages() {
 // Position the nav dock just below the filters panel
 function repositionNavDock() {
   const dock = document.getElementById('mapNavDock');
-  const filters = document.getElementById('filters');
-  if (!dock || !filters) return;
-  const r = filters.getBoundingClientRect();
-  // Place the dock aligned to filters' left, just below it
-  dock.style.left = `${Math.max(10, Math.round(r.left))}px`;
+  const near = document.getElementById('near-panel');
+  if (!dock || !near) return;
+  const r = near.getBoundingClientRect();
+  // Place the dock just below Near Me, aligned to the right edge
+  dock.style.left = 'auto';
+  dock.style.right = '10px';
   dock.style.top = `${Math.round(r.bottom) + 8}px`;
 }
 
@@ -1018,22 +1022,59 @@ function filterData() {
     type: "FeatureCollection",
     features: combined.filter(f => {
       const storeMatch = selectedTypes.size === 0 || selectedTypes.has(f.properties.Store_Type);
-      let wardMatch = true;
-      if (selectedWards.size > 0) {
-        wardMatch = false;
+      let wardMatch = false;
+      let countyMatch = false;
+      const hasWard = selectedWards.size > 0;
+      const hasCounty = showBorderRetailers && selectedCounties.size > 0;
+      // Compute geographic matches if needed
+      if (hasWard || hasCounty) {
         if (window.turf) {
           try {
             const pt = turf.point(f.geometry.coordinates);
-            for (const wid of selectedWards) {
-              const geom = wardsById[wid];
-              if (!geom) continue;
-              const poly = (geom.type === 'Polygon') ? turf.polygon(geom.coordinates) : turf.multiPolygon(geom.coordinates);
-              if (turf.booleanPointInPolygon(pt, poly)) { wardMatch = true; break; }
+            if (hasWard) {
+              for (const wid of selectedWards) {
+                const geom = wardsById[wid];
+                if (!geom) continue;
+                const poly = (geom.type === 'Polygon') ? turf.polygon(geom.coordinates) : turf.multiPolygon(geom.coordinates);
+                if (turf.booleanPointInPolygon(pt, poly)) { wardMatch = true; break; }
+              }
+            } else {
+              wardMatch = true; // not constraining by wards
             }
-          } catch (e) { wardMatch = true; }
+            if (hasCounty) {
+              for (const cid of selectedCounties) {
+                const cgeom = countiesById[cid];
+                if (!cgeom) continue;
+                const cpoly = (cgeom.type === 'Polygon') ? turf.polygon(cgeom.coordinates) : turf.multiPolygon(cgeom.coordinates);
+                if (turf.booleanPointInPolygon(pt, cpoly)) { countyMatch = true; break; }
+              }
+            } else {
+              countyMatch = true; // not constraining by counties
+            }
+          } catch (e) {
+            // On error, default to not excluding by geography
+            wardMatch = hasWard ? false : true;
+            countyMatch = hasCounty ? false : true;
+          }
+        } else {
+          // Turf not available; avoid excluding
+          wardMatch = hasWard ? true : true;
+          countyMatch = hasCounty ? true : true;
         }
+      } else {
+        // No geographic constraints
+        wardMatch = true;
+        countyMatch = true;
       }
-      return storeMatch && wardMatch;
+
+      // If both ward and county selections exist, use OR semantics (either passes)
+      let geoMatch;
+      if (hasWard && hasCounty) geoMatch = wardMatch || countyMatch;
+      else if (hasWard) geoMatch = wardMatch;
+      else if (hasCounty) geoMatch = countyMatch;
+      else geoMatch = true;
+
+      return storeMatch && geoMatch;
     })
   };
 
@@ -1129,6 +1170,85 @@ function populateWardFilter(wards) {
   }
   // Expose to outer scope
   window.syncWardDropdownLabel = syncWardDropdownLabel;
+
+  // Toggle dropdown
+  if (btn && dropdown) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.classList.toggle('open');
+      const expanded = dropdown.classList.contains('open');
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    });
+    document.addEventListener('click', (e) => {
+      if (!dropdown.contains(e.target)) {
+        dropdown.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+}
+
+// Populate county dropdown and index county geometries (hidden until bordering toggle is ON)
+function populateCountyFilter(counties) {
+  const panel = document.getElementById('countyDropdownPanel');
+  const btn = document.getElementById('countyDropdownBtn');
+  const dropdown = document.getElementById('countyDropdown');
+  if (!panel || !counties || !counties.features) return;
+
+  const items = counties.features
+    .map(f => ({ id: String(f.properties.GEOID || f.properties.COUNTYFP || f.properties.NAME || ''), label: f.properties.NAME || f.properties.LABEL || String(f.properties.GEOID || f.properties.COUNTYFP), geom: f.geometry }))
+    .filter(c => c.id);
+
+  // Build geometry index
+  countiesById = {};
+  items.forEach(c => { countiesById[c.id] = c.geom; });
+
+  // Sort alphabetically by county name
+  items.sort((a,b) => String(a.label).localeCompare(String(b.label)));
+
+  // Build checkboxes
+  panel.innerHTML = '';
+  items.forEach(c => {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = c.id;
+    cb.addEventListener('change', () => {
+      if (cb.checked) selectedCounties.add(c.id); else selectedCounties.delete(c.id);
+      syncCountyDropdownLabel();
+      filterData();
+    });
+    const span = document.createElement('span'); span.textContent = c.label;
+    label.appendChild(cb); label.appendChild(span);
+    panel.appendChild(label);
+  });
+  // Actions row (Select all / Clear)
+  const actions = document.createElement('div'); actions.className = 'actions';
+  const allBtn = document.createElement('button'); allBtn.type = 'button'; allBtn.textContent = 'Select all';
+  const clrBtn = document.createElement('button'); clrBtn.type = 'button'; clrBtn.textContent = 'Clear';
+  allBtn.addEventListener('click', () => {
+    selectedCounties = new Set(items.map(i => i.id));
+    panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+    syncCountyDropdownLabel(); filterData();
+  });
+  clrBtn.addEventListener('click', () => {
+    selectedCounties.clear();
+    panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    syncCountyDropdownLabel(); filterData();
+  });
+  actions.appendChild(allBtn); actions.appendChild(clrBtn); panel.appendChild(actions);
+
+  function syncCountyDropdownLabel() {
+    if (!btn) return;
+    if (selectedCounties.size === 0) { btn.textContent = 'All Counties ▾'; return; }
+    const list = Array.from(selectedCounties).map(id => {
+      // Try to recover label by id
+      const item = items.find(i => i.id === id);
+      return item ? item.label : id;
+    }).sort((a,b)=>String(a).localeCompare(String(b))).join(', ');
+    btn.textContent = `${list} ▾`;
+  }
+  // Expose to outer scope for reset usage
+  window.syncCountyDropdownLabel = syncCountyDropdownLabel;
 
   // Toggle dropdown
   if (btn && dropdown) {
@@ -1266,16 +1386,32 @@ function updateDCMaskAndBounds() {
   const lineSrc = map.getSource('dc-boundary-line');
   if (dcPolygon && window.turf) {
     try {
-      // Fit view to DC bbox (without constraining zoom/pan)
+      // Determine the area to exclude from the mask: DC alone, or DC + counties when toggled
+      let area = dcPolygon;
+      if (showBorderRetailers && countiesData && Array.isArray(countiesData.features)) {
+        try {
+          let unionGeom = area;
+          for (const f of countiesData.features) {
+            if (!f || !f.geometry) continue;
+            const poly = (f.geometry.type === 'Polygon') ? turf.polygon(f.geometry.coordinates) : turf.multiPolygon(f.geometry.coordinates);
+            // union may fail in some topologies, so guard
+            try { unionGeom = turf.union(unionGeom, poly) || unionGeom; } catch (_) {}
+          }
+          area = unionGeom || area;
+        } catch (_) { /* keep DC only */ }
+      }
+
+      // Fit view bounds first time only (based on DC alone)
       const b = turf.bbox(dcPolygon);
       const bounds = [[b[0], b[1]], [b[2], b[3]]];
       if (!dcBoundsApplied) {
         map.fitBounds(bounds, { padding: 30, duration: 0 });
         dcBoundsApplied = true;
+        try { dcBounds = bounds; } catch (_) {}
       }
 
-      // Build an outside mask (world minus DC)
-      const maskPoly = turf.mask(dcPolygon);
+      // Build an outside mask (world minus area)
+      const maskPoly = turf.mask(area);
       if (maskSrc) {
         maskSrc.setData(maskPoly);
       }
@@ -1288,6 +1424,12 @@ function updateDCMaskAndBounds() {
       }
       if (map.getLayer('dc-boundary-outline')) {
         try { map.moveLayer('dc-boundary-outline'); } catch (_) {}
+      }
+
+      // Toggle counties outline visibility based on bordering toggle
+      if (map.getLayer('counties-outline')) {
+        try { map.setLayoutProperty('counties-outline', 'visibility', showBorderRetailers ? 'visible' : 'none'); } catch (_) {}
+        try { map.moveLayer('counties-outline'); } catch (_) {}
       }
     } catch (e) {
       console.error('Failed to update DC mask/bounds:', e);
@@ -1361,12 +1503,14 @@ Promise.all([
   loadRetailersFlexible('data/SNAP_Retailer_Location_data'),
   fetch('data/Wards_from_2022.geojson').then(r => r.json()),
   fetch('data/Washington_DC_Boundary_Stone_Area.geojson').then(r => r.json()),
-  fetch('data/bordering_counties.geojson').then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] }))
+  fetch('data/bordering_counties.geojson').then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
+  fetch('data/dc_area_counties.geojson').then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] }))
 ])
-.then(([retailers, wards, dc, border]) => {
+.then(([retailers, wards, dc, border, counties]) => {
   geojsonData = retailers;
   wardsData = wards;
   borderRetailersData = border && border.type === 'FeatureCollection' ? border : { type: 'FeatureCollection', features: [] };
+  countiesData = counties && counties.type === 'FeatureCollection' ? counties : { type: 'FeatureCollection', features: [] };
   // Extract DC boundary geometry and prepare Turf polygon
   try {
     const dcFeat = (dc && dc.features) ? dc.features.find(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')) : null;
@@ -1384,6 +1528,7 @@ Promise.all([
   geojsonData = filterRetailersToDC(geojsonData);
   populateFilters(geojsonData);
   populateWardFilter(wardsData);
+  populateCountyFilter(countiesData);
   applyAggregationSetting();
   updateRetailerSource(geojsonData);
   updateLegend(geojsonData);
@@ -1427,6 +1572,31 @@ Promise.all([
     map.on('mouseenter', 'wards-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'wards-fill', () => { map.getCanvas().style.cursor = ''; });
   } catch (e) { console.warn('Wards layer add failed:', e); }
+
+  // Counties outline layer (initially hidden; shown when bordering retailers are toggled on)
+  try {
+    if (!map.getSource('counties')) {
+      map.addSource('counties', { type: 'geojson', data: countiesData });
+    } else {
+      const s = map.getSource('counties');
+      if (s && s.setData) s.setData(countiesData);
+    }
+    if (!map.getLayer('counties-outline')) {
+      map.addLayer({
+        id: 'counties-outline',
+        type: 'line',
+        source: 'counties',
+        layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': showBorderRetailers ? 'visible' : 'none' },
+        paint: {
+          'line-color': '#000000',
+          'line-width': 5,
+          'line-opacity': 1,
+          'line-blur': 0
+        }
+      });
+      try { map.moveLayer('counties-outline'); } catch (_) {}
+    }
+  } catch (e) { console.warn('Counties layer add failed:', e); }
 
   // Near Me panel handlers
   const nearSearchBtn = document.getElementById('nearSearch');
@@ -1500,6 +1670,11 @@ Promise.all([
       const wardPanel = document.getElementById('wardDropdownPanel');
       if (wardPanel) wardPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
       if (window.syncWardDropdownLabel) window.syncWardDropdownLabel();
+      // Clear county selection (if visible)
+      selectedCounties.clear();
+      const countyPanel = document.getElementById('countyDropdownPanel');
+      if (countyPanel) countyPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+      if (window.syncCountyDropdownLabel) window.syncCountyDropdownLabel();
       updateWardOutlineFromSelection();
       filterData();
     });
@@ -1514,6 +1689,24 @@ Promise.all([
     borderBtn.addEventListener('click', () => {
       showBorderRetailers = !showBorderRetailers;
       syncLabel();
+      // Show/hide county filter group
+      try {
+        const countyGroup = document.getElementById('countyFilterGroup');
+        if (countyGroup) {
+          if (showBorderRetailers) {
+            countyGroup.style.display = '';
+          } else {
+            countyGroup.style.display = 'none';
+            // Clear selections when hiding
+            selectedCounties.clear();
+            const panel = document.getElementById('countyDropdownPanel');
+            if (panel) panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+            if (window.syncCountyDropdownLabel) window.syncCountyDropdownLabel();
+          }
+        }
+      } catch (_) {}
+      // Update mask and counties outline visibility
+      updateDCMaskAndBounds();
       filterData();
     });
   }
