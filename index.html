@@ -10,6 +10,7 @@
 </head>
 <body>
   <div id="filters">
+    <div class="panel-title">Filter</div>
     <div class="filter-group">
       <div class="filter-title">Store Types</div>
       <div id="storeTypeFilters" class="checkbox-group"></div>
@@ -24,10 +25,10 @@
 
     <div class="filter-group">
       <div class="filter-title">Ward</div>
-      <label for="wardFilter" class="sr-only">Filter by Ward:</label>
-      <select id="wardFilter">
-        <option value="all">All</option>
-      </select>
+      <div id="wardDropdown" class="dropdown">
+        <button id="wardDropdownBtn" type="button" aria-haspopup="listbox" aria-expanded="false">All Wards ▾</button>
+        <div id="wardDropdownPanel" class="dropdown-panel" role="listbox"></div>
+      </div>
     </div>
   </div>
 

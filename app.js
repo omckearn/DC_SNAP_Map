@@ -189,6 +189,7 @@ map.on('load', () => {
 let geojsonData;
 let wardsData;
 let wardsById = {};
+let selectedWards = new Set();
 let markers = [];
 let dcBoundaryGeom = null; // raw GeoJSON geometry for DC boundary
 let dcPolygon = null;      // Turf.js polygon/multipolygon for DC boundary
@@ -625,26 +626,24 @@ function updateNearMePanel(collection) {
 // Filter logic
 function filterData() {
   const selectedTypes = getSelectedStoreTypes();
-  const wardFilter = document.getElementById('wardFilter') ? document.getElementById('wardFilter').value : 'all';
 
   const filtered = {
     type: "FeatureCollection",
     features: geojsonData.features.filter(f => {
       const storeMatch = selectedTypes.size === 0 || selectedTypes.has(f.properties.Store_Type);
       let wardMatch = true;
-      if (wardFilter !== 'all') {
-        const geom = wardsById[wardFilter];
-        if (geom && window.turf) {
+      if (selectedWards.size > 0) {
+        wardMatch = false;
+        if (window.turf) {
           try {
             const pt = turf.point(f.geometry.coordinates);
-            const poly = (geom.type === 'Polygon')
-              ? turf.polygon(geom.coordinates)
-              : turf.multiPolygon(geom.coordinates);
-            wardMatch = turf.booleanPointInPolygon(pt, poly);
-          } catch (e) {
-            console.error('Ward filter error:', e);
-            wardMatch = true; // fail open
-          }
+            for (const wid of selectedWards) {
+              const geom = wardsById[wid];
+              if (!geom) continue;
+              const poly = (geom.type === 'Polygon') ? turf.polygon(geom.coordinates) : turf.multiPolygon(geom.coordinates);
+              if (turf.booleanPointInPolygon(pt, poly)) { wardMatch = true; break; }
+            }
+          } catch (e) { wardMatch = true; }
         }
       }
       return storeMatch && wardMatch;
@@ -655,7 +654,7 @@ function filterData() {
   updateRetailerSource(filtered);
 
   // Update ward outline on map
-  updateWardOutline(wardFilter);
+  updateWardOutlineFromSelection();
 
   // Save current filtered and update legend + near me
   currentFilteredData = filtered;
@@ -687,8 +686,10 @@ function populateFilters(data) {
 
 // Populate ward dropdown and index ward geometries
 function populateWardFilter(wards) {
-  const wardSelect = document.getElementById('wardFilter');
-  if (!wardSelect || !wards || !wards.features) return;
+  const panel = document.getElementById('wardDropdownPanel');
+  const btn = document.getElementById('wardDropdownBtn');
+  const dropdown = document.getElementById('wardDropdown');
+  if (!panel || !wards || !wards.features) return;
 
   const items = wards.features
     .map(f => ({ id: String(f.properties.WARD_ID ?? f.properties.WARD ?? ''), label: f.properties.NAME || f.properties.LABEL || `Ward ${f.properties.WARD_ID}` , geom: f.geometry }))
@@ -701,12 +702,62 @@ function populateWardFilter(wards) {
   // Sort by numeric ward id when possible
   items.sort((a,b) => Number(a.id) - Number(b.id));
 
+  // Build checkboxes
+  panel.innerHTML = '';
   items.forEach(w => {
-    const opt = document.createElement('option');
-    opt.value = w.id;
-    opt.textContent = w.label;
-    wardSelect.appendChild(opt);
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = w.id;
+    cb.addEventListener('change', () => {
+      if (cb.checked) selectedWards.add(w.id); else selectedWards.delete(w.id);
+      syncWardDropdownLabel();
+      updateWardOutlineFromSelection();
+      filterData();
+    });
+    const span = document.createElement('span'); span.textContent = w.label;
+    label.appendChild(cb); label.appendChild(span);
+    panel.appendChild(label);
   });
+  // Actions row (Select all / Clear)
+  const actions = document.createElement('div'); actions.className = 'actions';
+  const allBtn = document.createElement('button'); allBtn.type = 'button'; allBtn.textContent = 'Select all';
+  const clrBtn = document.createElement('button'); clrBtn.type = 'button'; clrBtn.textContent = 'Clear';
+  allBtn.addEventListener('click', () => {
+    selectedWards = new Set(items.map(i => i.id));
+    panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+    syncWardDropdownLabel(); updateWardOutlineFromSelection(); filterData();
+  });
+  clrBtn.addEventListener('click', () => {
+    selectedWards.clear();
+    panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    syncWardDropdownLabel(); updateWardOutlineFromSelection(); filterData();
+  });
+  actions.appendChild(allBtn); actions.appendChild(clrBtn); panel.appendChild(actions);
+
+  function syncWardDropdownLabel() {
+    if (!btn) return;
+    if (selectedWards.size === 0) { btn.textContent = 'All Wards ▾'; return; }
+    const list = Array.from(selectedWards).sort((a,b)=>Number(a)-Number(b)).join(', ');
+    btn.textContent = `Ward ${list} ▾`;
+  }
+  // Expose to outer scope
+  window.syncWardDropdownLabel = syncWardDropdownLabel;
+
+  // Toggle dropdown
+  if (btn && dropdown) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dropdown.classList.toggle('open');
+      const expanded = dropdown.classList.contains('open');
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    });
+    document.addEventListener('click', (e) => {
+      if (!dropdown.contains(e.target)) {
+        dropdown.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
 }
 
 // Build/update the legend with counts per store type
@@ -720,13 +771,14 @@ function updateLegend(collection) {
       counts.set(t, (counts.get(t) || 0) + 1);
     });
   }
-  // Sort by count desc
-  const items = Array.from(counts.entries()).sort((a,b) => b[1] - a[1]);
+  // Sort alphabetically by type
+  const items = Array.from(counts.entries()).sort((a,b) => String(a[0]).localeCompare(String(b[0])));
   if (items.length === 0) {
     el.innerHTML = '';
     return;
   }
-  const html = items.map(([type, count]) => {
+  const total = (collection && collection.features) ? collection.features.length : 0;
+  const htmlItems = items.map(([type, count]) => {
     const color = storeTypeColors[type] || storeTypeColors['Other'];
     const emoji = storeTypeIcons[type] || storeTypeIcons['Other'];
     return `
@@ -737,7 +789,7 @@ function updateLegend(collection) {
       </div>
     `;
   }).join('');
-  el.innerHTML = html;
+  el.innerHTML = `<div class="legend-title">Store Types</div>${htmlItems}<div class="legend-total">Total Stores: ${total}</div>`;
 }
 
 // Update user location source data
@@ -793,32 +845,31 @@ function togglePickMode(on) {
 }
 
 // Draw or clear the selected ward outline
-function updateWardOutline(wardId) {
+function updateWardOutlineFromSelection() {
   const polySrc = map.getSource('selected-ward');
   const lineSrc = map.getSource('selected-ward-line');
-  if (!polySrc || !lineSrc) return; // style not ready yet
-
-  if (wardId && wardId !== 'all' && wardsById[wardId]) {
-    const geom = wardsById[wardId];
-    const polyFeature = { type: 'Feature', properties: { WARD_ID: wardId }, geometry: geom };
-    polySrc.setData({ type: 'FeatureCollection', features: [polyFeature] });
-
-    // Convert polygon to line for outline layer
-    if (window.turf) {
-      try {
-        const poly = (geom.type === 'Polygon')
-          ? turf.polygon(geom.coordinates)
-          : turf.multiPolygon(geom.coordinates);
-        const lineFeat = turf.polygonToLine(poly);
-        lineSrc.setData({ type: 'FeatureCollection', features: [lineFeat] });
-      } catch (e) {
-        console.error('Failed to create ward outline line:', e);
-        lineSrc.setData({ type: 'FeatureCollection', features: [] });
-      }
-    }
-  } else {
+  if (!polySrc || !lineSrc) return;
+  if (!window.turf) return;
+  if (!selectedWards || selectedWards.size === 0) {
     polySrc.setData({ type: 'FeatureCollection', features: [] });
     lineSrc.setData({ type: 'FeatureCollection', features: [] });
+    return;
+  }
+  try {
+    const features = [];
+    const lineFeatures = [];
+    selectedWards.forEach((wid) => {
+      const geom = wardsById[wid];
+      if (!geom) return;
+      features.push({ type: 'Feature', properties: { WARD_ID: wid }, geometry: geom });
+      const poly = (geom.type === 'Polygon') ? turf.polygon(geom.coordinates) : turf.multiPolygon(geom.coordinates);
+      const lf = turf.polygonToLine(poly);
+      if (lf.type === 'FeatureCollection') lineFeatures.push(...lf.features); else lineFeatures.push(lf);
+    });
+    polySrc.setData({ type: 'FeatureCollection', features });
+    lineSrc.setData({ type: 'FeatureCollection', features: lineFeatures });
+  } catch (e) {
+    console.error('Ward outline update failed:', e);
   }
 }
 
@@ -901,8 +952,7 @@ Promise.all([
   updateLegend(geojsonData);
   currentFilteredData = geojsonData;
 
-  const wardEl = document.getElementById('wardFilter');
-  if (wardEl) wardEl.addEventListener('change', filterData);
+  // Ward selection now handled by dropdown checkboxes and map clicks
 
   // Update mask and bounds now that boundary is known
   updateDCMaskAndBounds();
@@ -925,9 +975,16 @@ Promise.all([
       const f = e.features && e.features[0];
       if (!f) return;
       const w = String(f.properties.WARD_ID ?? f.properties.WARD ?? '');
-      const sel = document.getElementById('wardFilter');
-      if (sel && w) sel.value = w;
-      updateWardOutline(w || 'all');
+      if (!w) return;
+      if (selectedWards.has(w)) selectedWards.delete(w); else selectedWards.add(w);
+      // Sync UI checkboxes
+      const panel = document.getElementById('wardDropdownPanel');
+      if (panel) {
+        const cb = panel.querySelector(`input[type="checkbox"][value="${w}"]`);
+        if (cb) cb.checked = selectedWards.has(w);
+      }
+      if (window.syncWardDropdownLabel) window.syncWardDropdownLabel();
+      updateWardOutlineFromSelection();
       filterData();
     });
     map.on('mouseenter', 'wards-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -1001,9 +1058,12 @@ Promise.all([
       if (container) {
         container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
       }
-      const wardSel = document.getElementById('wardFilter');
-      if (wardSel) wardSel.value = 'all';
-      updateWardOutline('all');
+      // Clear ward selection checkboxes
+      selectedWards.clear();
+      const wardPanel = document.getElementById('wardDropdownPanel');
+      if (wardPanel) wardPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+      if (window.syncWardDropdownLabel) window.syncWardDropdownLabel();
+      updateWardOutlineFromSelection();
       filterData();
     });
   }
