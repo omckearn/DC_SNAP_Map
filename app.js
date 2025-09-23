@@ -1,5 +1,5 @@
 // public token restricted to https://omckearn.github.io/DC_SNAP_Map/*
-mapboxgl.accessToken = "pk.eyJ1Ijoib21ja2Vhcm51dyIsImEiOiJjbTFqamRqeWcxMWF6MnJwc2RkdjBqdHoxIn0.E5gopEUreChvdj15aNY6_g";
+mapboxgl.accessToken = "pk.eyJ1Ijoib21ja2Vhcm51dyIsImEiOiJjbWZ2cWNyYWcwNWRoMmtwdWc5amk1bWxiIn0.5uwt4drO_Ej32d0C_qqOwQ";
 
 const map = new mapboxgl.Map({
   container: 'map',
