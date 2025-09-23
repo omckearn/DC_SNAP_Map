@@ -157,8 +157,19 @@ map.on('load', () => {
   }
   // If boundary already loaded, update mask and bounds now
   updateDCMaskAndBounds();
-  // Retailer source/layers for clustering/points
-  ensureRetailerLayers();
+  // Retailer source/layers for clustering/points (default aggregation OFF)
+  rebuildRetailerLayers();
+  // Wire aggregation toggle
+  try {
+    const agg = document.getElementById('aggToggle');
+    if (agg) {
+      agg.checked = !!clusterEnabled;
+      agg.addEventListener('change', () => {
+        clusterEnabled = !!agg.checked;
+        rebuildRetailerLayers();
+      });
+    }
+  } catch (_) {}
   // Move nav controls into dock just below filters
   try {
     const corner = map.getContainer().querySelector('.mapboxgl-ctrl-top-left');
@@ -201,6 +212,196 @@ let pickLocationMode = false; // whether map clicks set near location
 let currentGeo = { lon: null, lat: null }; // last known geolocation
 let nearMarker = null; // Marker for user-input location (search/pick)
 let distanceUnits = 'miles'; // miles | kilometers
+let clusterEnabled = false; // aggregation (clustering) toggle; default OFF
+
+// Build/rebuild the retailers source and layers according to clusterEnabled
+function rebuildRetailerLayers() {
+  try {
+    // Remove existing layers if present
+    ['retailers-icons', 'retailers-circles', 'cluster-count', 'clusters'].forEach((ly) => {
+      if (map.getLayer(ly)) {
+        try { map.removeLayer(ly); } catch (_) {}
+      }
+    });
+    // Remove source if present
+    if (map.getSource('retailers')) {
+      try { map.removeSource('retailers'); } catch (_) {}
+    }
+
+    // Current data (filtered if available)
+    const data = (currentFilteredData || geojsonData) || { type: 'FeatureCollection', features: [] };
+
+    // Add source with clustering per toggle
+    map.addSource('retailers', {
+      type: 'geojson',
+      data,
+      cluster: !!clusterEnabled,
+      clusterRadius: 45,
+      clusterMaxZoom: 14
+    });
+
+    // Cluster layers (will be empty when clusterEnabled is false)
+    map.addLayer({
+      id: 'clusters',
+      type: 'circle',
+      source: 'retailers',
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': '#033C5A',
+        'circle-radius': ['step', ['get', 'point_count'], 16, 10, 20, 25, 24],
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 2
+      }
+    });
+    map.addLayer({
+      id: 'cluster-count',
+      type: 'symbol',
+      source: 'retailers',
+      filter: ['has', 'point_count'],
+      layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12 },
+      paint: { 'text-color': '#ffffff' }
+    });
+
+    // Non-cluster point layers (show when not clustered at current zoom, or always when cluster disabled)
+    map.addLayer({
+      id: 'retailers-circles',
+      type: 'circle',
+      source: 'retailers',
+      filter: ['!', ['has', 'point_count']],
+      paint: {
+        'circle-radius': 14,
+        'circle-color': [
+          'match', ['get', 'Store_Type'],
+          'Convenience Store', '#1f77b4',
+          'Farmers and Markets', '#2ca02c',
+          'Grocery Store', '#ff7f0e',
+          'Pharmacy', '#d62728',
+          'Specialty Store', '#8c564b',
+          'Super Store', '#17becf',
+          'Supermarket', '#e377c2',
+          /* other */ '#9467bd'
+        ],
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 2
+      }
+    });
+    // Register emoji images and overlay them as icons above circles
+    registerEmojiIconImages();
+    map.addLayer({
+      id: 'retailers-icons',
+      type: 'symbol',
+      source: 'retailers',
+      filter: ['!', ['has', 'point_count']],
+      layout: {
+        'icon-image': [
+          'match', ['get', 'Store_Type'],
+          'Convenience Store', 'st_emoji_convenience_store',
+          'Farmers and Markets', 'st_emoji_farmers_and_markets',
+          'Grocery Store', 'st_emoji_grocery_store',
+          'Pharmacy', 'st_emoji_pharmacy',
+          'Specialty Store', 'st_emoji_specialty_store',
+          'Super Store', 'st_emoji_super_store',
+          'Supermarket', 'st_emoji_supermarket',
+          /* other */ 'st_emoji_other'
+        ],
+        'icon-size': 0.9,
+        'icon-allow-overlap': true,
+        'icon-anchor': 'center'
+      }
+    });
+
+    // Bind interactivity once
+    if (!map.__retailerHandlersBound) {
+      map.on('click', 'clusters', (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
+        const clusterId = features[0].properties.cluster_id;
+        const source = map.getSource('retailers');
+        source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+          if (err) return;
+          map.easeTo({ center: features[0].geometry.coordinates, zoom });
+        });
+      });
+      map.on('mouseenter', 'clusters', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'clusters', () => { map.getCanvas().style.cursor = ''; });
+
+      const pointLayers = ['retailers-circles', 'retailers-icons'];
+      pointLayers.forEach((ly) => {
+        map.on('mouseenter', ly, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', ly, () => { map.getCanvas().style.cursor = ''; });
+        map.on('click', ly, (e) => {
+          const f = e.features && e.features[0];
+          if (!f) return;
+          const props = f.properties || {};
+          const coords = f.geometry.coordinates.slice();
+          const addressParts = [
+            props.Store_Street_Address,
+            props.Additonal_Address,
+            [props.City, props.State].filter(Boolean).join(', '),
+            props.Zip_Code
+          ].filter(Boolean);
+          const addressLine = addressParts.join(', ');
+          const html = `
+            <div>
+              <strong>${props.Store_Name || 'Unnamed Store'}</strong><br>
+              <span>${props.Store_Type || 'Unknown Type'}</span><br>
+              <span>
+                ${addressLine || 'Address not available'}
+                ${addressLine ? '<button class=\"copy-address-btn\" type=\"button\" title=\"Copy\" aria-label=\"Copy\">📋</button>' : ''}
+              </span>
+              <div style=\"margin-top:6px;\">
+                <a class=\"near-dir popup-dir\" href=\"#\" target=\"_blank\" rel=\"noopener\">Directions</a>
+              </div>
+            </div>`;
+          const popup = new mapboxgl.Popup({ offset: 20, className: 'app-popup' }).setLngLat(coords).setHTML(html).addTo(map);
+
+          popup.on('open', () => {
+            try {
+              const container = popup.getElement();
+              const btn = container && container.querySelector('.copy-address-btn');
+              if (btn) {
+                btn.addEventListener('click', (ev) => {
+                  ev.stopPropagation();
+                  if (!addressLine) return;
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(addressLine)
+                      .then(() => { btn.textContent = '✅'; setTimeout(() => { btn.textContent = '📋'; }, 1200); })
+                      .catch(() => { btn.textContent = '❌'; setTimeout(() => { btn.textContent = '📋'; }, 1200); });
+                  } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = addressLine; document.body.appendChild(ta); ta.select();
+                    try { document.execCommand('copy'); btn.textContent = '✅'; } catch(_) { btn.textContent = '❌'; }
+                    document.body.removeChild(ta); setTimeout(() => { btn.textContent = '📋'; }, 1200);
+                  }
+                }, { once: true });
+              }
+            } catch (_) {}
+
+            try {
+              const container = popup.getElement();
+              const dir = container && container.querySelector('.popup-dir');
+              if (dir) {
+                const hasGeo = currentGeo && currentGeo.lon != null && currentGeo.lat != null;
+                const destLat = coords[1], destLon = coords[0];
+                if (hasGeo) {
+                  const originStr = `${currentGeo.lat},${currentGeo.lon}`;
+                  const destStr = `${destLat},${destLon}`;
+                  dir.href = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(originStr)}&destination=${encodeURIComponent(destStr)}&travelmode=walking`;
+                } else {
+                  const destStr = `${destLat},${destLon}`;
+                  dir.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destStr)}`;
+                }
+              }
+            } catch (_) {}
+          });
+        });
+      });
+
+      map.__retailerHandlersBound = true;
+    }
+  } catch (e) {
+    console.error('Failed to rebuild retailer layers:', e);
+  }
+}
 
 function getSelectedStoreTypes() {
   const container = document.getElementById('storeTypeFilters');
@@ -947,7 +1148,7 @@ Promise.all([
   geojsonData = filterRetailersToDC(geojsonData);
   populateFilters(geojsonData);
   populateWardFilter(wardsData);
-  ensureRetailerLayers();
+  rebuildRetailerLayers();
   updateRetailerSource(geojsonData);
   updateLegend(geojsonData);
   currentFilteredData = geojsonData;
