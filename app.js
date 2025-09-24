@@ -1723,7 +1723,9 @@ Promise.all([
   async function geocodeAndSet(query) {
     if (!query) return;
     try {
-      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
+      // Prefer token from config.js if present; fallback to mapboxgl.accessToken for GitHub Pages
+      const token = (typeof MAPBOX_TOKEN !== 'undefined' && MAPBOX_TOKEN) || mapboxgl.accessToken;
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&access_token=${encodeURIComponent(token)}`;
       const resp = await fetch(url);
       const gj = await resp.json();
       const f = gj && gj.features && gj.features[0];
