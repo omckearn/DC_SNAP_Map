@@ -36,6 +36,18 @@ const storeTypeColors = {
   'Supermarket': '#e377c2'
 };
 
+// Fixed display order for store types (used by legend and filters)
+const storeTypeOrder = [
+  'Super Store',
+  'Supermarket',
+  'Grocery Store',
+  'Convenience Store',
+  'Pharmacy',
+  'Farmers and Markets',
+  'Specialty Store',
+  'Other'
+];
+
 // Add an empty GeoJSON source + layer for selected ward outline once map style loads
 map.on('load', () => {
   // Add mask source/layer to dim areas outside DC
@@ -70,7 +82,7 @@ map.on('load', () => {
       source: 'dc-boundary-line',
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: {
-        'line-color': '#000000',
+        'line-color': '#033C5A',
         'line-width': 5,
         'line-opacity': 1,
         'line-blur': 0
@@ -113,7 +125,7 @@ map.on('load', () => {
       source: 'selected-ward-line',
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: {
-        'line-color': '#000',
+        'line-color': '#AA9868',
         'line-width': 2.5,
         'line-opacity': 1
       }
@@ -218,6 +230,15 @@ let distanceUnits = 'miles'; // miles | kilometers
 let clusterEnabled = false; // aggregation (clustering) toggle; default OFF
 let borderRetailersData = null; // bordering counties retailers dataset
 let showBorderRetailers = false; // toggle for including bordering retailers
+let legendCollapsed = false; // legend collapse state
+
+// Ensure point/cluster layers render above borders/lines
+function ensureRetailerLayersOnTop() {
+  try {
+    const order = ['clusters', 'cluster-count', 'retailers-circles', 'retailers-icons'];
+    order.forEach((id) => { if (map.getLayer(id)) { try { map.moveLayer(id); } catch (_) {} } });
+  } catch (_) {}
+}
 
 // Build/rebuild the retailers source and layers according to clusterEnabled
 function rebuildRetailerLayers() {
@@ -583,6 +604,8 @@ function applyAggregationSetting() {
 
       map.__retailerHandlersBound = true;
     }
+    // Keep points above borders
+    ensureRetailerLayersOnTop();
   } catch (e) {
     console.error('Failed to apply aggregation setting:', e);
   }
@@ -1096,11 +1119,25 @@ function filterData() {
 // Populate dropdowns dynamically
 function populateFilters(data) {
   const stores = new Set();
-  data.features.forEach(f => { if (f.properties.Store_Type) stores.add(f.properties.Store_Type); });
+  data.features.forEach(f => { if (f.properties && f.properties.Store_Type) stores.add(f.properties.Store_Type); });
+  // When bordering retailers are shown, include their types as well so the filter list is complete
+  if (showBorderRetailers && borderRetailersData && Array.isArray(borderRetailersData.features)) {
+    borderRetailersData.features.forEach(f => { if (f.properties && f.properties.Store_Type) stores.add(f.properties.Store_Type); });
+  }
   const container = document.getElementById('storeTypeFilters');
   if (!container) return;
   container.innerHTML = '';
-  [...stores].sort().forEach(st => {
+  const all = [...stores];
+  // Sort by fixed order, unknowns at end alphabetically
+  all.sort((a,b) => {
+    const ia = storeTypeOrder.indexOf(String(a));
+    const ib = storeTypeOrder.indexOf(String(b));
+    if (ia === -1 && ib === -1) return String(a).localeCompare(String(b));
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+  all.forEach(st => {
     const id = `st_${st.replace(/[^a-z0-9]+/gi,'_')}`;
     const label = document.createElement('label');
     const cb = document.createElement('input');
@@ -1215,6 +1252,8 @@ function populateCountyFilter(counties) {
     cb.addEventListener('change', () => {
       if (cb.checked) selectedCounties.add(c.id); else selectedCounties.delete(c.id);
       syncCountyDropdownLabel();
+      updateCountiesOutlineFilter();
+      updateDCMaskAndBounds();
       filterData();
     });
     const span = document.createElement('span'); span.textContent = c.label;
@@ -1228,12 +1267,18 @@ function populateCountyFilter(counties) {
   allBtn.addEventListener('click', () => {
     selectedCounties = new Set(items.map(i => i.id));
     panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
-    syncCountyDropdownLabel(); filterData();
+    syncCountyDropdownLabel();
+    updateCountiesOutlineFilter();
+    updateDCMaskAndBounds();
+    filterData();
   });
   clrBtn.addEventListener('click', () => {
     selectedCounties.clear();
     panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-    syncCountyDropdownLabel(); filterData();
+    syncCountyDropdownLabel();
+    updateCountiesOutlineFilter();
+    updateDCMaskAndBounds();
+    filterData();
   });
   actions.appendChild(allBtn); actions.appendChild(clrBtn); panel.appendChild(actions);
 
@@ -1265,6 +1310,9 @@ function populateCountyFilter(counties) {
       }
     });
   }
+
+  // Initialize filter for outline layer
+  updateCountiesOutlineFilter();
 }
 
 // Build/update the legend with counts per store type
@@ -1278,25 +1326,43 @@ function updateLegend(collection) {
       counts.set(t, (counts.get(t) || 0) + 1);
     });
   }
-  // Sort alphabetically by type
-  const items = Array.from(counts.entries()).sort((a,b) => String(a[0]).localeCompare(String(b[0])));
-  if (items.length === 0) {
-    el.innerHTML = '';
-    return;
-  }
+  // Fixed order for legend types
+  const items = Array.from(counts.entries()).sort((a, b) => {
+    const ia = storeTypeOrder.indexOf(String(a[0]));
+    const ib = storeTypeOrder.indexOf(String(b[0]));
+    if (ia === -1 && ib === -1) return String(a[0]).localeCompare(String(b[0]));
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
   const total = (collection && collection.features) ? collection.features.length : 0;
-  const htmlItems = items.map(([type, count]) => {
-    const color = storeTypeColors[type] || storeTypeColors['Other'];
-    const emoji = storeTypeIcons[type] || storeTypeIcons['Other'];
-    return `
-      <div class="legend-item">
-        <span class="marker-emoji legend-marker" style="background-color:${color}">${emoji}</span>
-        <span class="legend-label">${type}</span>
-        <span class="legend-count">${count}</span>
-      </div>
-    `;
-  }).join('');
-  el.innerHTML = `<div class="legend-title">Store Types</div>${htmlItems}<div class="legend-total">Total Stores: ${total}</div>`;
+
+  // Build toggle button (absolute top-right) and title; dynamic label
+  const header = `<button id="legendToggle" class="panel-toggle" type="button">${legendCollapsed ? 'Show' : 'Hide'}</button><div class="legend-title">Store Types</div>`;
+
+  // Build body only when not collapsed
+  let body = '';
+  if (!legendCollapsed && items.length > 0) {
+    const htmlItems = items.map(([type, count]) => {
+      const color = storeTypeColors[type] || storeTypeColors['Other'];
+      const emoji = storeTypeIcons[type] || storeTypeIcons['Other'];
+      return `
+        <div class="legend-item">
+          <span class="marker-emoji legend-marker" style="background-color:${color}">${emoji}</span>
+          <span class="legend-label">${type}</span>
+          <span class="legend-count">${count}</span>
+        </div>
+      `;
+    }).join('');
+    body = `${htmlItems}<div class="legend-total">Total Stores: ${total}</div>`;
+  }
+  el.classList.toggle('collapsed', !!legendCollapsed);
+  el.innerHTML = header + body;
+  // Wire toggle button
+  const btn = document.getElementById('legendToggle');
+  if (btn) {
+    btn.onclick = () => { legendCollapsed = !legendCollapsed; updateLegend(collection); };
+  }
 }
 
 // Update user location source data
@@ -1386,15 +1452,20 @@ function updateDCMaskAndBounds() {
   const lineSrc = map.getSource('dc-boundary-line');
   if (dcPolygon && window.turf) {
     try {
-      // Determine the area to exclude from the mask: DC alone, or DC + counties when toggled
+      // Determine the area to exclude from the mask: DC alone, or DC + (selected|all) counties when toggled
       let area = dcPolygon;
       if (showBorderRetailers && countiesData && Array.isArray(countiesData.features)) {
         try {
+          const featsToUse = (selectedCounties && selectedCounties.size > 0)
+            ? countiesData.features.filter(cf => {
+                const pid = String(cf.properties && (cf.properties.GEOID || cf.properties.COUNTYFP || cf.properties.NAME || ''));
+                return selectedCounties.has(pid);
+              })
+            : countiesData.features;
           let unionGeom = area;
-          for (const f of countiesData.features) {
+          for (const f of featsToUse) {
             if (!f || !f.geometry) continue;
             const poly = (f.geometry.type === 'Polygon') ? turf.polygon(f.geometry.coordinates) : turf.multiPolygon(f.geometry.coordinates);
-            // union may fail in some topologies, so guard
             try { unionGeom = turf.union(unionGeom, poly) || unionGeom; } catch (_) {}
           }
           area = unionGeom || area;
@@ -1424,17 +1495,48 @@ function updateDCMaskAndBounds() {
       }
       if (map.getLayer('dc-boundary-outline')) {
         try { map.moveLayer('dc-boundary-outline'); } catch (_) {}
+        // Re-assert points on top
+        ensureRetailerLayersOnTop();
       }
 
       // Toggle counties outline visibility based on bordering toggle
       if (map.getLayer('counties-outline')) {
         try { map.setLayoutProperty('counties-outline', 'visibility', showBorderRetailers ? 'visible' : 'none'); } catch (_) {}
-        try { map.moveLayer('counties-outline'); } catch (_) {}
+        // Ensure DC outline stays on top rather than repositioning counties
+        try { map.moveLayer('dc-boundary-outline'); } catch (_) {}
+        ensureRetailerLayersOnTop();
       }
     } catch (e) {
       console.error('Failed to update DC mask/bounds:', e);
     }
   }
+}
+
+// Update the counties outline layer filter to show only selected counties (or all when none selected)
+function updateCountiesOutlineFilter() {
+  try {
+    if (!map.getLayer('counties-outline')) return;
+    if (!showBorderRetailers) {
+      map.setLayoutProperty('counties-outline', 'visibility', 'none');
+      return;
+    }
+    map.setLayoutProperty('counties-outline', 'visibility', 'visible');
+    const ids = selectedCounties ? Array.from(selectedCounties) : [];
+    // Set outline color: specific selections -> AA9868, otherwise default brand color
+    try { map.setPaintProperty('counties-outline', 'line-color', ids.length > 0 ? '#AA9868' : '#033C5A'); } catch (_) {}
+    if (ids.length === 0) {
+      // Show all counties
+      map.setFilter('counties-outline', null);
+    } else {
+      const filter = [
+        'any',
+        ['in', ['get', 'GEOID'], ['literal', ids]],
+        ['in', ['get', 'COUNTYFP'], ['literal', ids]],
+        ['in', ['get', 'NAME'], ['literal', ids]]
+      ];
+      map.setFilter('counties-outline', filter);
+    }
+  } catch (_) { /* noop */ }
 }
 
 function filterRetailersToDC(collection) {
@@ -1551,7 +1653,7 @@ Promise.all([
       }, 'selected-ward-fill');
     }
     if (!map.getLayer('wards-outline')) {
-      map.addLayer({ id: 'wards-outline', type: 'line', source: 'wards', paint: { 'line-color': '#033C5A', 'line-width': 1, 'line-opacity': 0.4 } }, 'selected-ward-outline');
+      map.addLayer({ id: 'wards-outline', type: 'line', source: 'wards', paint: { 'line-color': '#AA9868', 'line-width': 1, 'line-opacity': 0.4 } }, 'selected-ward-outline');
     }
     map.on('click', 'wards-fill', (e) => {
       const f = e.features && e.features[0];
@@ -1588,13 +1690,15 @@ Promise.all([
         source: 'counties',
         layout: { 'line-join': 'round', 'line-cap': 'round', 'visibility': showBorderRetailers ? 'visible' : 'none' },
         paint: {
-          'line-color': '#000000',
+          'line-color': '#033C5A',
           'line-width': 5,
           'line-opacity': 1,
           'line-blur': 0
         }
       });
-      try { map.moveLayer('counties-outline'); } catch (_) {}
+      // Keep DC outline on top for z-order and re-assert points on top
+      try { map.moveLayer('dc-boundary-outline'); } catch (_) {}
+      ensureRetailerLayersOnTop();
     }
   } catch (e) { console.warn('Counties layer add failed:', e); }
 
@@ -1649,6 +1753,28 @@ Promise.all([
       setNearLocation(c.lng, c.lat, true, 'center');
     });
   }
+  // Panel hide/show toggles
+  try {
+    const filtersEl = document.getElementById('filters');
+    const filtersToggle = document.getElementById('filtersToggle');
+    if (filtersEl && filtersToggle) {
+      filtersToggle.addEventListener('click', () => {
+        const collapsed = filtersEl.classList.toggle('collapsed');
+        filtersToggle.textContent = collapsed ? 'Show' : 'Hide';
+        repositionNavDock();
+      });
+    }
+    const nearEl = document.getElementById('near-panel');
+    const nearToggle = document.getElementById('nearToggle');
+    if (nearEl && nearToggle) {
+      nearToggle.addEventListener('click', () => {
+        const collapsed = nearEl.classList.toggle('collapsed');
+        nearToggle.textContent = collapsed ? 'Show' : 'Hide';
+        repositionNavDock();
+      });
+    }
+    // No toggle for attribution panel per request
+  } catch (_) {}
   const unitsSel = document.getElementById('unitsSelect');
   if (unitsSel) {
     unitsSel.addEventListener('change', () => {
@@ -1707,6 +1833,7 @@ Promise.all([
       } catch (_) {}
       // Update mask and counties outline visibility
       updateDCMaskAndBounds();
+      updateCountiesOutlineFilter();
       filterData();
     });
   }

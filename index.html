@@ -4,13 +4,21 @@
   <meta charset="UTF-8" />
   <title>DC SNAP Retailers</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Favicons -->
+  <link rel="apple-touch-icon" sizes="180x180" href="img/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="img/favicon-16x16.png">
+  <link rel="icon" href="img/favicon.ico">
+  <link rel="manifest" href="img/site.webmanifest">
+  <meta name="theme-color" content="#033C5A">
   <link href="style.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
 </head>
 <body>
+  <header id="siteHeader" class="site-header">DC SNAP Retailer Locator Map</header>
   <div id="filters">
-    <div class="panel-title">Filter</div>
+    <div class="panel-title">Filter <button id="filtersToggle" class="panel-toggle" type="button">Hide</button></div>
     <div class="filter-group">
       <div class="filter-title">Store Types</div>
       <div id="storeTypeFilters" class="checkbox-group"></div>
@@ -51,7 +59,7 @@
 
   <!-- Near Me Panel -->
   <div id="near-panel" class="near-panel">
-    <div class="near-title">SNAP Retailers Near Me</div>
+    <div class="near-title">SNAP Retailers Near Me <button id="nearToggle" class="panel-toggle" type="button">Hide</button></div>
     <div class="near-inputs">
       <input id="nearAddress" type="text" placeholder="Enter address in DC" />
       <button id="nearSearch" type="button">Search</button>
