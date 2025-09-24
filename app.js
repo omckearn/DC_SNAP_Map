@@ -994,18 +994,23 @@ function updateNearMePanel(collection) {
   const byType = new Map();
   collection.features.forEach(f => {
     const t = (f.properties && f.properties.Store_Type) || 'Other';
-    // Skip categories that should not be listed in Near Me
-    if (t === 'Other' || t === 'Specialty Store') return;
     const pt = turf.point(f.geometry.coordinates);
     const d = turf.distance(origin, pt, { units: distanceUnits === 'kilometers' ? 'kilometers' : 'miles' });
     const cur = byType.get(t);
     if (!cur || d < cur.dist) byType.set(t, { feature: f, dist: d });
   });
 
-  // Sort by distance asc
+  // Nearest per type, then order by fixed store type order
   const rows = Array.from(byType.entries())
     .map(([type, obj]) => ({ type, name: obj.feature.properties.Store_Name || 'Unnamed', dist: obj.dist, coords: obj.feature.geometry.coordinates }))
-    .sort((a,b) => a.dist - b.dist);
+    .sort((a, b) => {
+      const ia = (typeof storeTypeOrder !== 'undefined') ? storeTypeOrder.indexOf(String(a.type)) : -1;
+      const ib = (typeof storeTypeOrder !== 'undefined') ? storeTypeOrder.indexOf(String(b.type)) : -1;
+      if (ia === -1 && ib === -1) return String(a.type).localeCompare(String(b.type));
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
 
   if (rows.length === 0) {
     listEl.innerHTML = '<div class="near-item">No retailers found.</div>';
@@ -1233,7 +1238,11 @@ function populateCountyFilter(counties) {
   if (!panel || !counties || !counties.features) return;
 
   const items = counties.features
-    .map(f => ({ id: String(f.properties.GEOID || f.properties.COUNTYFP || f.properties.NAME || ''), label: f.properties.NAME || f.properties.LABEL || String(f.properties.GEOID || f.properties.COUNTYFP), geom: f.geometry }))
+    .map(f => ({
+      id: String((f.properties && (f.properties.coty_code || f.properties.GEOID || f.properties.COUNTYFP || f.properties.NAME)) || ''),
+      label: (f.properties && (f.properties.coty_name_long || f.properties.coty_name || f.properties.NAME)) || String((f.properties && (f.properties.coty_code || f.properties.GEOID || f.properties.COUNTYFP)) || ''),
+      geom: f.geometry
+    }))
     .filter(c => c.id);
 
   // Build geometry index
@@ -1458,7 +1467,7 @@ function updateDCMaskAndBounds() {
         try {
           const featsToUse = (selectedCounties && selectedCounties.size > 0)
             ? countiesData.features.filter(cf => {
-                const pid = String(cf.properties && (cf.properties.GEOID || cf.properties.COUNTYFP || cf.properties.NAME || ''));
+                const pid = String(cf.properties && (cf.properties.coty_code || cf.properties.GEOID || cf.properties.COUNTYFP || cf.properties.NAME || ''));
                 return selectedCounties.has(pid);
               })
             : countiesData.features;
@@ -1530,6 +1539,9 @@ function updateCountiesOutlineFilter() {
     } else {
       const filter = [
         'any',
+        ['in', ['get', 'coty_code'], ['literal', ids]],
+        ['in', ['get', 'coty_name'], ['literal', ids]],
+        ['in', ['get', 'coty_name_long'], ['literal', ids]],
         ['in', ['get', 'GEOID'], ['literal', ids]],
         ['in', ['get', 'COUNTYFP'], ['literal', ids]],
         ['in', ['get', 'NAME'], ['literal', ids]]
@@ -1606,7 +1618,7 @@ Promise.all([
   fetch('data/Wards_from_2022.geojson').then(r => r.json()),
   fetch('data/Washington_DC_Boundary_Stone_Area.geojson').then(r => r.json()),
   fetch('data/bordering_counties.geojson').then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
-  fetch('data/dc_area_counties.geojson').then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] }))
+  fetch('data/local_counties.geojson').then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] }))
 ])
 .then(([retailers, wards, dc, border, counties]) => {
   geojsonData = retailers;
@@ -1802,7 +1814,12 @@ Promise.all([
       if (countyPanel) countyPanel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
       if (window.syncCountyDropdownLabel) window.syncCountyDropdownLabel();
       updateWardOutlineFromSelection();
+      // Reset counties outline and mask to show all counties in blue when toggle is on
+      try { updateCountiesOutlineFilter(); } catch (_) {}
+      try { updateDCMaskAndBounds(); } catch (_) {}
       filterData();
+      // Keep points above borders
+      try { ensureRetailerLayersOnTop(); } catch (_) {}
     });
   }
   // Bordering counties toggle button
