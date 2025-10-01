@@ -195,6 +195,38 @@ map.on('load', () => {
   // Reposition nav dock on resize
   window.addEventListener('resize', repositionNavDock);
 
+  // Global copy button delegation for popup address copy
+  try {
+    if (!window.__copyDelegationBound) {
+      document.addEventListener('click', async (ev) => {
+        const btn = ev.target && ev.target.closest && ev.target.closest('.copy-address-btn');
+        if (!btn) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const address = btn.getAttribute('data-address') || '';
+        const text = address || '';
+        try {
+          if (text && navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            btn.textContent = '✅';
+          } else if (text) {
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            btn.textContent = '✅';
+          } else {
+            btn.textContent = '❌';
+          }
+        } catch (_) {
+          btn.textContent = '❌';
+        }
+        setTimeout(() => { try { btn.textContent = '📋'; } catch (_) {} }, 1200);
+      }, true);
+      window.__copyDelegationBound = true;
+    }
+  } catch (_) {}
+
   // Map click to pick a location (when enabled)
   map.on('click', (e) => {
     if (!pickLocationMode) return;
@@ -359,6 +391,8 @@ function rebuildRetailerLayers() {
           if (!f) return;
           const props = f.properties || {};
           const coords = f.geometry.coordinates.slice();
+          const destLat = coords[1], destLon = coords[0];
+          const fallbackHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${destLat},${destLon}`)}`;
           const addressParts = [
             props.Store_Street_Address,
             props.Additonal_Address,
@@ -366,16 +400,20 @@ function rebuildRetailerLayers() {
             props.Zip_Code
           ].filter(Boolean);
           const addressLine = addressParts.join(', ');
+          const farmersNote = String(props.Store_Type) === 'Farmers and Markets'
+            ? '<div class="farmers-note" style="margin-top:6px;"><strong>Note: Farmers markets might only be present on certain days of the week.</strong></div>'
+            : '';
           const html = `
             <div>
               <strong>${props.Store_Name || 'Unnamed Store'}</strong><br>
               <span>${props.Store_Type || 'Unknown Type'}</span><br>
               <span>
                 ${addressLine || 'Address not available'}
-                ${addressLine ? '<button class=\"copy-address-btn\" type=\"button\" title=\"Copy\" aria-label=\"Copy\">📋</button>' : ''}
+                ${addressLine ? `<button class=\"copy-address-btn\" type=\"button\" title=\"Copy\" aria-label=\"Copy\" data-address=\"${String(addressLine).replace(/"/g,'&quot;')}\">📋</button>` : ''}
               </span>
+              ${farmersNote}
               <div style=\"margin-top:6px;\">
-                <a class=\"near-dir popup-dir\" href=\"#\" target=\"_blank\" rel=\"noopener\">Directions</a>
+                <a class=\"near-dir popup-dir\" href=\"${fallbackHref}\" target=\"_blank\" rel=\"noopener\">Directions</a>
               </div>
             </div>`;
           const popup = new mapboxgl.Popup({ offset: 20, className: 'app-popup' }).setLngLat(coords).setHTML(html).addTo(map);
@@ -539,6 +577,8 @@ function applyAggregationSetting() {
           if (!f) return;
           const props = f.properties || {};
           const coords = f.geometry.coordinates.slice();
+          const destLat = coords[1], destLon = coords[0];
+          const fallbackHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${destLat},${destLon}`)}`;
           const addressParts = [
             props.Store_Street_Address,
             props.Additonal_Address,
@@ -546,16 +586,20 @@ function applyAggregationSetting() {
             props.Zip_Code
           ].filter(Boolean);
           const addressLine = addressParts.join(', ');
+          const farmersNote = String(props.Store_Type) === 'Farmers and Markets'
+            ? '<div class="farmers-note" style="margin-top:6px;"><strong>Note: Farmers markets might only be present on certain days of the week.</strong></div>'
+            : '';
           const html = `
             <div>
               <strong>${props.Store_Name || 'Unnamed Store'}</strong><br>
               <span>${props.Store_Type || 'Unknown Type'}</span><br>
               <span>
                 ${addressLine || 'Address not available'}
-                ${addressLine ? '<button class="copy-address-btn" type="button" title="Copy" aria-label="Copy">📋</button>' : ''}
+                ${addressLine ? `<button class="copy-address-btn" type="button" title="Copy" aria-label="Copy" data-address="${String(addressLine).replace(/"/g,'&quot;')}">📋</button>` : ''}
               </span>
+              ${farmersNote}
               <div style="margin-top:6px;">
-                <a class="near-dir popup-dir" href="#" target="_blank" rel="noopener">Directions</a>
+                <a class="near-dir popup-dir" href="${fallbackHref}" target="_blank" rel="noopener">Directions</a>
               </div>
             </div>`;
           const popup = new mapboxgl.Popup({ offset: 20, className: 'app-popup' }).setLngLat(coords).setHTML(html).addTo(map);
@@ -808,6 +852,8 @@ function ensureRetailerLayers() {
       if (!f) return;
       const props = f.properties || {};
       const coords = f.geometry.coordinates.slice();
+      const destLat = coords[1], destLon = coords[0];
+      const fallbackHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${destLat},${destLon}`)}`;
       const addressParts = [
         props.Store_Street_Address,
         props.Additonal_Address,
@@ -815,18 +861,22 @@ function ensureRetailerLayers() {
         props.Zip_Code
       ].filter(Boolean);
       const addressLine = addressParts.join(', ');
+      const farmersNote = String(props.Store_Type) === 'Farmers and Markets'
+        ? '<div class="farmers-note" style="margin-top:6px;"><strong>Note: Farmers markets might only be present on certain days of the week.</strong></div>'
+        : '';
       const html = `
-        <div>
-          <strong>${props.Store_Name || 'Unnamed Store'}</strong><br>
-          <span>${props.Store_Type || 'Unknown Type'}</span><br>
-          <span>
-            ${addressLine || 'Address not available'}
-            ${addressLine ? '<button class="copy-address-btn" type="button" title="Copy" aria-label="Copy">📋</button>' : ''}
-          </span>
-          <div style="margin-top:6px;">
-            <a class="near-dir popup-dir" href="#" target="_blank" rel="noopener">Directions</a>
-          </div>
-        </div>`;
+            <div>
+              <strong>${props.Store_Name || 'Unnamed Store'}</strong><br>
+              <span>${props.Store_Type || 'Unknown Type'}</span><br>
+              <span>
+                ${addressLine || 'Address not available'}
+                ${addressLine ? `<button class="copy-address-btn" type="button" title="Copy" aria-label="Copy" data-address="${String(addressLine).replace(/"/g,'&quot;')}">📋</button>` : ''}
+              </span>
+              ${farmersNote}
+              <div style="margin-top:6px;">
+                <a class="near-dir popup-dir" href="${fallbackHref}" target="_blank" rel="noopener">Directions</a>
+              </div>
+            </div>`;
       const popup = new mapboxgl.Popup({ offset: 20, className: 'app-popup' }).setLngLat(coords).setHTML(html).addTo(map);
 
       popup.on('open', () => {
@@ -882,6 +932,8 @@ function addMarkers(data) {
   data.features.forEach(feature => {
     const coords = feature.geometry.coordinates;
     const props = feature.properties;
+    const destLat = coords[1], destLon = coords[0];
+    const fallbackHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${destLat},${destLon}`)}`;
 
     const addressParts = [
       props.Store_Street_Address,
@@ -891,16 +943,20 @@ function addMarkers(data) {
     ].filter(Boolean);
     const addressLine = addressParts.join(', ');
 
+    const farmersNote = String(props.Store_Type) === 'Farmers and Markets'
+      ? '<div class="farmers-note" style="margin-top:6px;"><strong>Note: Farmers markets might only be present on certain days of the week.</strong></div>'
+      : '';
     const popup = new mapboxgl.Popup({ offset: 20, className: 'app-popup' }).setHTML(`
       <div>
         <strong>${props.Store_Name || 'Unnamed Store'}</strong><br>
         <span>${props.Store_Type || 'Unknown Type'}</span><br>
         <span>
           ${addressLine || 'Address not available'}
-          ${addressLine ? '<button class="copy-address-btn" type="button" title="Copy" aria-label="Copy">📋</button>' : ''}
+          ${addressLine ? `<button class="copy-address-btn" type="button" title="Copy" aria-label="Copy" data-address="${String(addressLine).replace(/"/g,'&quot;')}">📋</button>` : ''}
         </span>
+        ${farmersNote}
         <div style="margin-top:6px;">
-          <a class="near-dir popup-dir" href="#" target="_blank" rel="noopener">Directions</a>
+          <a class="near-dir popup-dir" href="${fallbackHref}" target="_blank" rel="noopener">Directions</a>
         </div>
       </div>
     `);
@@ -1182,6 +1238,7 @@ function populateWardFilter(wards) {
       if (cb.checked) selectedWards.add(w.id); else selectedWards.delete(w.id);
       syncWardDropdownLabel();
       updateWardOutlineFromSelection();
+      try { updateDCMaskAndBounds(); } catch (_) {}
       filterData();
     });
     const span = document.createElement('span'); span.textContent = w.label;
@@ -1195,12 +1252,12 @@ function populateWardFilter(wards) {
   allBtn.addEventListener('click', () => {
     selectedWards = new Set(items.map(i => i.id));
     panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
-    syncWardDropdownLabel(); updateWardOutlineFromSelection(); filterData();
+    syncWardDropdownLabel(); updateWardOutlineFromSelection(); try { updateDCMaskAndBounds(); } catch (_) {} filterData();
   });
   clrBtn.addEventListener('click', () => {
     selectedWards.clear();
     panel.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-    syncWardDropdownLabel(); updateWardOutlineFromSelection(); filterData();
+    syncWardDropdownLabel(); updateWardOutlineFromSelection(); try { updateDCMaskAndBounds(); } catch (_) {} filterData();
   });
   actions.appendChild(allBtn); actions.appendChild(clrBtn); panel.appendChild(actions);
 
@@ -1239,8 +1296,8 @@ function populateCountyFilter(counties) {
 
   const items = counties.features
     .map(f => ({
-      id: String((f.properties && (f.properties.coty_code || f.properties.GEOID || f.properties.COUNTYFP || f.properties.NAME)) || ''),
-      label: (f.properties && (f.properties.coty_name_long || f.properties.coty_name || f.properties.NAME)) || String((f.properties && (f.properties.coty_code || f.properties.GEOID || f.properties.COUNTYFP)) || ''),
+      id: String((f.properties && (f.properties.GEOID || f.properties.coty_code || (f.properties.STATEFP && f.properties.COUNTYFP ? (String(f.properties.STATEFP).padStart(2,'0') + String(f.properties.COUNTYFP).padStart(3,'0')) : null) || f.properties.COUNTY_FIP || f.properties.COUNTY || f.properties.NAME)) || ''),
+      label: (f.properties && (f.properties.coty_name_long || f.properties.coty_name || f.properties.NAME || f.properties.COUNTY)) || String((f.properties && (f.properties.GEOID || f.properties.coty_code)) || ''),
       geom: f.geometry
     }))
     .filter(c => c.id);
@@ -1461,25 +1518,53 @@ function updateDCMaskAndBounds() {
   const lineSrc = map.getSource('dc-boundary-line');
   if (dcPolygon && window.turf) {
     try {
-      // Determine the area to exclude from the mask: DC alone, or DC + (selected|all) counties when toggled
-      let area = dcPolygon;
-      if (showBorderRetailers && countiesData && Array.isArray(countiesData.features)) {
-        try {
-          const featsToUse = (selectedCounties && selectedCounties.size > 0)
+      // Build a highlight area from selected wards and counties.
+      // When bordering retailers are ON and no county/ward is selected, highlight DC + ALL counties.
+      // Everything outside the highlight area will be greyed out by the mask.
+      let highlight = null;
+
+      const hasWardSel = !!(selectedWards && selectedWards.size > 0);
+      const hasCountySel = !!(showBorderRetailers && selectedCounties && selectedCounties.size > 0);
+
+      // Wards: union selected wards if any
+      try {
+        if (hasWardSel && wardsById) {
+          for (const wid of selectedWards) {
+            const geom = wardsById[wid];
+            if (!geom) continue;
+            const poly = (geom.type === 'Polygon') ? turf.polygon(geom.coordinates) : turf.multiPolygon(geom.coordinates);
+            highlight = highlight ? (turf.union(highlight, poly) || highlight) : poly;
+          }
+        }
+      } catch (_) {}
+
+      // Counties:
+      try {
+        if (showBorderRetailers && countiesData && Array.isArray(countiesData.features)) {
+          const featsToUse = hasCountySel
             ? countiesData.features.filter(cf => {
-                const pid = String(cf.properties && (cf.properties.coty_code || cf.properties.GEOID || cf.properties.COUNTYFP || cf.properties.NAME || ''));
+                const pid = String(cf.properties && (cf.properties.GEOID || cf.properties.coty_code || cf.properties.COUNTYFP || cf.properties.COUNTY_FIP || cf.properties.NAME || cf.properties.COUNTY || ''));
                 return selectedCounties.has(pid);
               })
-            : countiesData.features;
-          let unionGeom = area;
+            : countiesData.features; // no county selection -> use ALL bordering counties
           for (const f of featsToUse) {
             if (!f || !f.geometry) continue;
             const poly = (f.geometry.type === 'Polygon') ? turf.polygon(f.geometry.coordinates) : turf.multiPolygon(f.geometry.coordinates);
-            try { unionGeom = turf.union(unionGeom, poly) || unionGeom; } catch (_) {}
+            highlight = highlight ? (turf.union(highlight, poly) || highlight) : poly;
           }
-          area = unionGeom || area;
-        } catch (_) { /* keep DC only */ }
-      }
+        }
+      } catch (_) {}
+
+      // Always include DC if no wards selected (so DC shows by default).
+      // If wards are selected, we assume they represent the DC portion to highlight.
+      try {
+        if (!hasWardSel) {
+          highlight = highlight ? (turf.union(highlight, dcPolygon) || highlight) : dcPolygon;
+        }
+      } catch (_) {}
+
+      // Fallback: if still nothing, highlight DC
+      const area = highlight || dcPolygon;
 
       // Fit view bounds first time only (based on DC alone)
       const b = turf.bbox(dcPolygon);
@@ -1490,7 +1575,7 @@ function updateDCMaskAndBounds() {
         try { dcBounds = bounds; } catch (_) {}
       }
 
-      // Build an outside mask (world minus area)
+      // Build an outside mask (world minus area) so only selected areas remain undimmed
       const maskPoly = turf.mask(area);
       if (maskSrc) {
         maskSrc.setData(maskPoly);
@@ -1514,6 +1599,11 @@ function updateDCMaskAndBounds() {
         // Ensure DC outline stays on top rather than repositioning counties
         try { map.moveLayer('dc-boundary-outline'); } catch (_) {}
         ensureRetailerLayersOnTop();
+      }
+      // Toggle DC boundary visibility: show by default; hide only when filters are applied while bordering toggle is ON
+      if (map.getLayer('dc-boundary-outline')) {
+        const hideDC = !!(showBorderRetailers && (hasWardSel || hasCountySel));
+        try { map.setLayoutProperty('dc-boundary-outline', 'visibility', hideDC ? 'none' : 'visible'); } catch (_) {}
       }
     } catch (e) {
       console.error('Failed to update DC mask/bounds:', e);
@@ -1539,12 +1629,14 @@ function updateCountiesOutlineFilter() {
     } else {
       const filter = [
         'any',
+        ['in', ['get', 'GEOID'], ['literal', ids]],
         ['in', ['get', 'coty_code'], ['literal', ids]],
         ['in', ['get', 'coty_name'], ['literal', ids]],
         ['in', ['get', 'coty_name_long'], ['literal', ids]],
-        ['in', ['get', 'GEOID'], ['literal', ids]],
         ['in', ['get', 'COUNTYFP'], ['literal', ids]],
-        ['in', ['get', 'NAME'], ['literal', ids]]
+        ['in', ['get', 'COUNTY_FIP'], ['literal', ids]],
+        ['in', ['get', 'NAME'], ['literal', ids]],
+        ['in', ['get', 'COUNTY'], ['literal', ids]]
       ];
       map.setFilter('counties-outline', filter);
     }
@@ -1590,6 +1682,9 @@ async function loadRetailersFlexible(basePath) {
   } catch (_) {}
   // Fallback .geojson
   const res = await fetch(`${basePath}.geojson`);
+  if (!res.ok) {
+    throw new Error(`Failed to load ${basePath}.geojson (${res.status})`);
+  }
   return await res.json();
 }
 
@@ -1613,17 +1708,124 @@ function parseNdjsonFeatures(text) {
 }
 
 // Load data (retailers and wards)
+// Try new DC-specific filename first, then fall back to original
+async function loadRetailersWithFallback() {
+  try {
+    return await loadRetailersFlexible('data/SNAP_Retailer_Location_data_DC');
+  } catch (_) {
+    return await loadRetailersFlexible('data/SNAP_Retailer_Location_data');
+  }
+}
+
+// Load SNAP retailers in bordering counties: try new file, then fallback
+async function loadBorderRetailersWithFallback() {
+  try {
+    return await loadRetailersFlexible('data/SNAP_Retailer_Location_data_border_counties');
+  } catch (_) {
+    try {
+      return await loadRetailersFlexible('data/bordering_counties');
+    } catch (_) {
+      return { type: 'FeatureCollection', features: [] };
+    }
+  }
+}
+
+// Counties loader: prefer new MD + VA datasets, fallback to local for any remaining
+async function loadCountiesMerged() {
+  let md = null;
+  let va = null;
+  let local = null;
+  try {
+    const resp = await fetch('data/MD_bordering_Counties.geojson');
+    if (resp.ok) md = await resp.json();
+  } catch (_) {}
+  try {
+    const resp = await fetch('data/VA_bordering_counties.geojson');
+    if (resp.ok) va = await resp.json();
+  } catch (_) {}
+  try {
+    const resp = await fetch('data/local_counties.geojson');
+    if (resp.ok) local = await resp.json();
+  } catch (_) {}
+
+  function standardize(f, origin) {
+    if (!f || !f.properties) return f;
+    const p = f.properties;
+    // Compute GEOID (5-digit FIPS)
+    let geoid = null;
+    if (p.GEOID) geoid = String(p.GEOID);
+    else if (p.geoid) geoid = String(p.geoid);
+    else if (p.coty_code) geoid = String(p.coty_code);
+    else if (p.STATEFP && p.COUNTYFP) geoid = String(p.STATEFP).padStart(2,'0') + String(p.COUNTYFP).padStart(3,'0');
+    else if (p.COUNTYFP && p._ste_fp) geoid = String(p._ste_fp).padStart(2,'0') + String(p.COUNTYFP).padStart(3,'0');
+    else if (p.COUNTY_FIP != null && origin === 'MD') geoid = '24' + String(p.COUNTY_FIP).padStart(3,'0');
+    else if (p.COUNTY_FIP != null && origin === 'VA') geoid = '51' + String(p.COUNTY_FIP).padStart(3,'0');
+    if (geoid) f.properties.GEOID = geoid;
+
+    // Compute NAME for display if missing
+    if (!p.coty_name_long && !p.coty_name && !p.NAME) {
+      if (p.COUNTY) {
+        // If origin VA and the area is an independent city, leave as City suffix if present
+        const suffix = (origin === 'VA' && /city$/i.test(String(p.COUNTY))) ? '' : ' County';
+        f.properties.NAME = `${p.COUNTY}${suffix}`.trim();
+      } else if (p.NAMELSAD) {
+        f.properties.NAME = String(p.NAMELSAD);
+      }
+    }
+    return f;
+  }
+
+  const out = { type: 'FeatureCollection', features: [] };
+  if (md && Array.isArray(md.features)) {
+    for (const f of md.features) out.features.push(standardize(f, 'MD'));
+  }
+  if (va && Array.isArray(va.features)) {
+    for (const f of va.features) out.features.push(standardize(f, 'VA'));
+  }
+  if (local && Array.isArray(local.features)) {
+    for (const f of local.features) {
+      const p = f.properties || {};
+      // Only add features not already included (by GEOID) and that look like MD or VA neighbors
+      const possibleGeoId = String(p.GEOID || p.coty_code || (p.STATEFP && p.COUNTYFP ? String(p.STATEFP).padStart(2,'0') + String(p.COUNTYFP).padStart(3,'0') : ''));
+      const exists = possibleGeoId && out.features.some(ff => String((ff.properties||{}).GEOID||'') === possibleGeoId);
+      if (!exists) {
+        const isNeighbor = /^24|^51/.test(possibleGeoId) || /maryland|virginia/i.test(String(p.ste_name||''));
+        if (isNeighbor) out.features.push(standardize(f, /^51/.test(possibleGeoId)?'VA':'MD'));
+      }
+    }
+  }
+  return out;
+}
+
 Promise.all([
-  loadRetailersFlexible('data/SNAP_Retailer_Location_data'),
+  loadRetailersWithFallback(),
   fetch('data/Wards_from_2022.geojson').then(r => r.json()),
   fetch('data/Washington_DC_Boundary_Stone_Area.geojson').then(r => r.json()),
-  fetch('data/bordering_counties.geojson').then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] })),
-  fetch('data/local_counties.geojson').then(r => r.json()).catch(() => ({ type: 'FeatureCollection', features: [] }))
+  loadBorderRetailersWithFallback(),
+  loadCountiesMerged()
 ])
 .then(([retailers, wards, dc, border, counties]) => {
   geojsonData = retailers;
   wardsData = wards;
   borderRetailersData = border && border.type === 'FeatureCollection' ? border : { type: 'FeatureCollection', features: [] };
+  // Remove Restaurant Meals Program and specific stores from bordering retailers
+  try {
+    if (borderRetailersData && Array.isArray(borderRetailersData.features)) {
+      borderRetailersData = {
+        type: 'FeatureCollection',
+        features: borderRetailersData.features.filter((f) => {
+          try {
+            const p = f && f.properties ? f.properties : {};
+            const type = String(p.Store_Type || '').trim();
+            const name = String(p.Store_Name || '').toLowerCase();
+            if (type === 'Restaurant Meals Program') return false;
+            if (name.includes('royal farm 152') || name.includes('royal farms 152')) return false;
+            return true;
+          } catch (_) { return true; }
+        })
+      };
+    }
+  } catch (_) {}
   countiesData = counties && counties.type === 'FeatureCollection' ? counties : { type: 'FeatureCollection', features: [] };
   // Extract DC boundary geometry and prepare Turf polygon
   try {
