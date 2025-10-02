@@ -1824,6 +1824,25 @@ Promise.all([
           } catch (_) { return true; }
         })
       };
+      // Normalize Store_Type based on Store_Name keywords (case-insensitive)
+      const isPharmacyName = (n) => /pharmacy|walgreens|(^|[^a-z])cvs([^a-z]|$)/i.test(n);
+      const isDollarName = (n) => /super\s*dollar\s*market|dollar\s*tree|dollartree|^dollar\s+\w+/i.test(n);
+      borderRetailersData = {
+        type: 'FeatureCollection',
+        features: borderRetailersData.features.map((f) => {
+          try {
+            const p = f.properties || {};
+            const name = String(p.Store_Name || '');
+            if (isPharmacyName(name)) {
+              p.Store_Type = 'Pharmacy';
+            } else if (isDollarName(name)) {
+              p.Store_Type = 'Convenience Store';
+            }
+            f.properties = p;
+            return f;
+          } catch (_) { return f; }
+        })
+      };
     }
   } catch (_) {}
   countiesData = counties && counties.type === 'FeatureCollection' ? counties : { type: 'FeatureCollection', features: [] };
